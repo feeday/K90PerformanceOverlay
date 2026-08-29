@@ -10,12 +10,8 @@ android {
         applicationId = "com.ppt.k90monitor"
         minSdk = 26
         targetSdk = 36
-        versionCode = 4
-        versionName = "4.0"
-    }
-
-    buildFeatures {
-        aidl = true
+        versionCode = 5
+        versionName = "4.1"
     }
 
     buildTypes {
@@ -28,9 +24,4 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-}
-
-dependencies {
-    implementation("dev.rikka.shizuku:api:13.1.5")
-    implementation("dev.rikka.shizuku:provider:13.1.5")
 }
