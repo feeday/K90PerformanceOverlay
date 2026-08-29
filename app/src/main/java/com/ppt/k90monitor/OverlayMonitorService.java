@@ -7,6 +7,7 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
 import android.graphics.Typeface;
@@ -27,8 +28,14 @@ import android.widget.Toast;
 import java.util.Locale;
 
 public class OverlayMonitorService extends Service {
+    public static final String PREFS = "k90_monitor_prefs";
+    public static final String KEY_MODE = "display_mode";
+    public static final String MODE_TEMP = "temperature";
+    public static final String MODE_FULL = "full";
+
     private static final int NOTIFICATION_ID = 9001;
     private static final String CHANNEL_ID = "k90_monitor";
+
     private WindowManager windowManager;
     private View overlay;
     private WindowManager.LayoutParams lp;
@@ -36,6 +43,8 @@ public class OverlayMonitorService extends Service {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private MetricReader reader;
     private RedMagicBridgeReader redMagic;
+    private NetworkDisplayReader netDisplay;
+    private SharedPreferences prefs;
 
     private final Runnable tick = new Runnable() {
         @Override public void run() {
@@ -49,6 +58,8 @@ public class OverlayMonitorService extends Service {
         super.onCreate();
         reader = new MetricReader(this);
         redMagic = new RedMagicBridgeReader(this);
+        netDisplay = new NetworkDisplayReader(this);
+        prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         createNotificationChannel();
         startForeground(NOTIFICATION_ID, buildNotification());
         if (!Settings.canDrawOverlays(this)) {
@@ -82,7 +93,7 @@ public class OverlayMonitorService extends Service {
         box.setBackground(bg);
 
         TextView title = new TextView(this);
-        title.setText("K90 MONITOR 5.4");
+        title.setText("K90 MONITOR 5.5");
         title.setTextColor(0xFFB8E1FF);
         title.setTextSize(10);
         title.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
@@ -124,16 +135,35 @@ public class OverlayMonitorService extends Service {
         if (text == null) return;
         MetricReader.Snapshot s = reader.read();
         RedMagicBridgeReader.State r = redMagic.read();
+        NetworkDisplayReader.State n = netDisplay.read();
+
+        String mode = prefs.getString(KEY_MODE, MODE_FULL);
+        boolean hasLiveRedMagic = r.fileExists && !r.stale && r.fanRpm >= 0;
+
+        if (MODE_TEMP.equals(mode)) {
+            StringBuilder out = new StringBuilder();
+            out.append("CPU ").append(temp(s.cpuTempC))
+                    .append("   GPU ").append(temp(s.gpuTempC));
+            if (hasLiveRedMagic && !Float.isNaN(r.clampTempC)) {
+                out.append("\nCLAMP ").append(temp(r.clampTempC));
+            }
+            text.setText(out.toString());
+            return;
+        }
 
         String cpu = String.format(Locale.US, "CPU %s  %s  %s", pct(s.cpuUsage), freq(s.cpuFreqMHz), temp(s.cpuTempC));
         String thermal = String.format(Locale.US, "GPU %s   BAT %s", temp(s.gpuTempC), temp(s.batteryTempC));
         String mem = String.format(Locale.US, "RAM %s / %s  %s", gb(s.memUsedBytes), gb(s.memTotalBytes), pct(s.memUsage));
+        String net = "NET ↓" + speed(n.downBytesPerSec) + "  ↑" + speed(n.upBytesPerSec);
+        String hz = "DISPLAY " + refresh(n.refreshRateHz);
 
         StringBuilder out = new StringBuilder();
-        out.append(cpu).append('\n').append(thermal).append('\n').append(mem);
+        out.append(cpu).append('\n')
+                .append(thermal).append('\n')
+                .append(mem).append('\n')
+                .append(net).append('\n')
+                .append(hz);
 
-        // REDMAGIC section is completely hidden unless fresh fan telemetry exists.
-        boolean hasLiveRedMagic = r.fileExists && !r.stale && r.fanRpm >= 0;
         if (hasLiveRedMagic) {
             out.append("\n\nREDMAGIC")
                     .append("\nFAN ").append(rpm(r.fanRpm))
@@ -153,6 +183,17 @@ public class OverlayMonitorService extends Service {
     private String gb(long bytes) { return bytes <= 0 ? "N/A" : String.format(Locale.US, "%.1fG", bytes / 1073741824.0); }
     private String rpm(int v) { return v < 0 ? "---- RPM" : String.format(Locale.US, "%4d RPM", v); }
 
+    private String speed(double bytesPerSec) {
+        if (Double.isNaN(bytesPerSec)) return "--";
+        if (bytesPerSec >= 1024 * 1024) return String.format(Locale.US, "%.1fMB/s", bytesPerSec / (1024.0 * 1024.0));
+        if (bytesPerSec >= 1024) return String.format(Locale.US, "%.0fKB/s", bytesPerSec / 1024.0);
+        return String.format(Locale.US, "%.0fB/s", bytesPerSec);
+    }
+
+    private String refresh(float hz) {
+        return Float.isNaN(hz) ? "-- Hz" : String.format(Locale.US, "%.0f Hz", hz);
+    }
+
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= 26) {
             NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
@@ -169,8 +210,8 @@ public class OverlayMonitorService extends Service {
         stop.setAction("STOP");
         PendingIntent stopPi = PendingIntent.getService(this, 2, stop, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         Notification.Builder b = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(this, CHANNEL_ID) : new Notification.Builder(this);
-        return b.setContentTitle("K90 性能悬浮监控 5.4")
-                .setContentText("CPU / GPU温度 / BAT / RAM；红魔数据有则显示")
+        return b.setContentTitle("K90 性能悬浮监控 5.5")
+                .setContentText("支持温度模式 / 全部模式")
                 .setSmallIcon(android.R.drawable.stat_notify_sync)
                 .setContentIntent(content)
                 .setOngoing(true)
