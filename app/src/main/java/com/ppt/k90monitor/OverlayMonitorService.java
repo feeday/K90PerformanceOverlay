@@ -35,7 +35,7 @@ public class OverlayMonitorService extends Service {
     private TextView text;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private MetricReader reader;
-    private CoolerBleManager cooler;
+    private RedMagicLogReader redMagic;
 
     private final Runnable tick = new Runnable() {
         @Override public void run() {
@@ -48,8 +48,8 @@ public class OverlayMonitorService extends Service {
     public void onCreate() {
         super.onCreate();
         reader = new MetricReader(this);
-        cooler = CoolerBleManager.get(this);
-        if (cooler.hasPermissions()) cooler.startAutoConnect();
+        redMagic = RedMagicLogReader.get(this);
+        redMagic.start();
         createNotificationChannel();
         startForeground(NOTIFICATION_ID, buildNotification());
         if (!Settings.canDrawOverlays(this)) {
@@ -84,7 +84,7 @@ public class OverlayMonitorService extends Service {
         box.setBackground(bg);
 
         TextView title = new TextView(this);
-        title.setText("K90 MONITOR 5.1  ·  拖动");
+        title.setText("K90 MONITOR 5.2  ·  只读红魔App");
         title.setTextColor(0xFFB8E1FF);
         title.setTextSize(10);
         title.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
@@ -130,13 +130,8 @@ public class OverlayMonitorService extends Service {
     private void updateMetrics() {
         if (text == null) return;
         MetricReader.Snapshot s = reader.read();
-
-        if (cooler.hasPermissions()) {
-            CoolerBleManager.State before = cooler.getState();
-            if (!before.connected && !before.scanning) cooler.startAutoConnect();
-            cooler.refreshTelemetry();
-        }
-        CoolerBleManager.State c = cooler.getState();
+        if (!redMagic.getState().running) redMagic.start();
+        RedMagicLogReader.State r = redMagic.getState();
 
         String cpu = String.format(Locale.US, "CPU %s  %s  %s",
                 pct(s.cpuUsage), freq(s.cpuFreqMHz), temp(s.cpuTempC));
@@ -145,11 +140,9 @@ public class OverlayMonitorService extends Service {
         String mem = String.format(Locale.US, "RAM %s / %s  %s",
                 gb(s.memUsedBytes), gb(s.memTotalBytes), pct(s.memUsage));
 
-        String rm = "RM  " + (c.connected ? "已连接" : (c.scanning ? "扫描中" : "未连接")) +
-                "   COOL " + onOff(c.coolerOn);
-        String fan = "FAN " + rpm(c.fanRpm) + "   CLAMP " + temp(c.clampTempC);
-        String pwr = "PWR " + power(c.powerW) +
-                "   AUTO " + onOff(c.autoTemp) + "   DEV " + onOff(c.destroyer);
+        String rm = "RM  " + redMagic.compactStatus();
+        String fan = "FAN " + rpm(r.fanRpm) + "   CLAMP " + temp(r.clampTempC);
+        String pwr = "PWR " + RedMagicLogReader.formatPower(r.powerW);
 
         text.setText(cpu + "\n" + thermal + "\n" + mem + "\n\n" + rm + "\n" + fan + "\n" + pwr);
     }
@@ -177,20 +170,12 @@ public class OverlayMonitorService extends Service {
         return v < 0 ? "---- RPM" : String.format(Locale.US, "%4d RPM", v);
     }
 
-    private String power(float w) {
-        return Float.isNaN(w) ? "--" : String.format(Locale.US, "%.0f W", w);
-    }
-
-    private String onOff(Boolean v) {
-        return v == null ? "--" : (v ? "ON" : "OFF");
-    }
-
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= 26) {
             NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
             NotificationChannel ch = new NotificationChannel(CHANNEL_ID, "性能悬浮监控",
                     NotificationManager.IMPORTANCE_LOW);
-            ch.setDescription("保持系统性能与红魔散热器悬浮监控运行");
+            ch.setDescription("读取系统性能和红魔官方 App 已解析的散热器遥测");
             nm.createNotificationChannel(ch);
         }
     }
@@ -208,8 +193,8 @@ public class OverlayMonitorService extends Service {
         Notification.Builder b = Build.VERSION.SDK_INT >= 26
                 ? new Notification.Builder(this, CHANNEL_ID)
                 : new Notification.Builder(this);
-        return b.setContentTitle("K90 性能 + 红魔散热器监控 5.1")
-                .setContentText("系统温度 / RAM / Cooler 温度·转速·功率")
+        return b.setContentTitle("K90 性能 + 红魔只读监控 5.2")
+                .setContentText("背夹温度 / 风扇转速 / 功耗来自红魔官方 App 日志")
                 .setSmallIcon(android.R.drawable.stat_notify_sync)
                 .setContentIntent(content)
                 .setOngoing(true)
@@ -220,6 +205,7 @@ public class OverlayMonitorService extends Service {
     @Override
     public void onDestroy() {
         handler.removeCallbacksAndMessages(null);
+        if (redMagic != null) redMagic.stop();
         if (windowManager != null && overlay != null) {
             try { windowManager.removeView(overlay); } catch (Throwable ignored) { }
         }
