@@ -1,5 +1,9 @@
 # K90 性能悬浮监控
 
+![k90.png](https://github.com/feeday/K90PerformanceOverlay/blob/main/k90.png)
+
+
+
 面向 **Redmi K90 / HyperOS / Android 16** 的轻量悬浮性能监控 APK。
 
 当前稳定版：**4.1 Stable**
