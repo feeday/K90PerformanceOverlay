@@ -84,7 +84,7 @@ public class OverlayMonitorService extends Service {
         box.setBackground(bg);
 
         TextView title = new TextView(this);
-        title.setText("K90 MONITOR 5.0  ·  拖动");
+        title.setText("K90 MONITOR 5.1  ·  拖动");
         title.setTextColor(0xFFB8E1FF);
         title.setTextSize(10);
         title.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
@@ -130,6 +130,12 @@ public class OverlayMonitorService extends Service {
     private void updateMetrics() {
         if (text == null) return;
         MetricReader.Snapshot s = reader.read();
+
+        if (cooler.hasPermissions()) {
+            CoolerBleManager.State before = cooler.getState();
+            if (!before.connected && !before.scanning) cooler.startAutoConnect();
+            cooler.refreshTelemetry();
+        }
         CoolerBleManager.State c = cooler.getState();
 
         String cpu = String.format(Locale.US, "CPU %s  %s  %s",
@@ -142,7 +148,8 @@ public class OverlayMonitorService extends Service {
         String rm = "RM  " + (c.connected ? "已连接" : (c.scanning ? "扫描中" : "未连接")) +
                 "   COOL " + onOff(c.coolerOn);
         String fan = "FAN " + rpm(c.fanRpm) + "   CLAMP " + temp(c.clampTempC);
-        String pwr = "PWR " + power(c.powerW);
+        String pwr = "PWR " + power(c.powerW) +
+                "   AUTO " + onOff(c.autoTemp) + "   DEV " + onOff(c.destroyer);
 
         text.setText(cpu + "\n" + thermal + "\n" + mem + "\n\n" + rm + "\n" + fan + "\n" + pwr);
     }
@@ -171,7 +178,7 @@ public class OverlayMonitorService extends Service {
     }
 
     private String power(float w) {
-        return Float.isNaN(w) ? "--" : String.format(Locale.US, "%.1f W", w);
+        return Float.isNaN(w) ? "--" : String.format(Locale.US, "%.0f W", w);
     }
 
     private String onOff(Boolean v) {
@@ -201,8 +208,8 @@ public class OverlayMonitorService extends Service {
         Notification.Builder b = Build.VERSION.SDK_INT >= 26
                 ? new Notification.Builder(this, CHANNEL_ID)
                 : new Notification.Builder(this);
-        return b.setContentTitle("K90 性能 + 红魔散热器监控 5.0")
-                .setContentText("CPU / GPU温度 / RAM / Cooler BLE")
+        return b.setContentTitle("K90 性能 + 红魔散热器监控 5.1")
+                .setContentText("系统温度 / RAM / Cooler 温度·转速·功率")
                 .setSmallIcon(android.R.drawable.stat_notify_sync)
                 .setContentIntent(content)
                 .setOngoing(true)
@@ -254,9 +261,7 @@ public class OverlayMonitorService extends Service {
                     try { windowManager.updateViewLayout(overlay, lp); } catch (Throwable ignored) { }
                     return true;
                 case MotionEvent.ACTION_UP:
-                    if (!moved && System.currentTimeMillis() - downAt >= 650) {
-                        stopSelf();
-                    }
+                    if (!moved && System.currentTimeMillis() - downAt >= 650) stopSelf();
                     return true;
                 default:
                     return true;
