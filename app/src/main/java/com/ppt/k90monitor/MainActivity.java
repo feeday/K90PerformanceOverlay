@@ -20,16 +20,37 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import rikka.shizuku.Shizuku;
+
 public class MainActivity extends Activity {
     private TextView status;
     private TextView diagnosticsView;
     private String lastDiagnostics = "";
+
+    private final Shizuku.OnRequestPermissionResultListener shizukuPermissionListener =
+            (requestCode, grantResult) -> {
+                if (requestCode != ShizukuBridge.REQUEST_CODE) return;
+                runOnUiThread(() -> {
+                    updateStatus();
+                    Toast.makeText(this,
+                            grantResult == PackageManager.PERMISSION_GRANTED ? "Shizuku 授权成功" : "Shizuku 授权被拒绝",
+                            Toast.LENGTH_SHORT).show();
+                });
+            };
+
+    private final Shizuku.OnBinderReceivedListener binderListener = () -> runOnUiThread(this::updateStatus);
+    private final Shizuku.OnBinderDeadListener binderDeadListener = () -> runOnUiThread(this::updateStatus);
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(buildUi());
         requestNotificationPermissionIfNeeded();
+        try {
+            Shizuku.addRequestPermissionResultListener(shizukuPermissionListener);
+            Shizuku.addBinderReceivedListenerSticky(binderListener);
+            Shizuku.addBinderDeadListener(binderDeadListener);
+        } catch (Throwable ignored) { }
         updateStatus();
     }
 
@@ -37,6 +58,16 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         updateStatus();
+    }
+
+    @Override
+    protected void onDestroy() {
+        try {
+            Shizuku.removeRequestPermissionResultListener(shizukuPermissionListener);
+            Shizuku.removeBinderReceivedListener(binderListener);
+            Shizuku.removeBinderDeadListener(binderDeadListener);
+        } catch (Throwable ignored) { }
+        super.onDestroy();
     }
 
     private View buildUi() {
@@ -50,14 +81,14 @@ public class MainActivity extends Activity {
         scroll.addView(root, new ScrollView.LayoutParams(-1, -2));
 
         TextView title = new TextView(this);
-        title.setText("K90 性能悬浮监控 V3");
+        title.setText("K90 性能悬浮监控 V4");
         title.setTextSize(24);
         title.setTextColor(Color.rgb(20, 20, 20));
         title.setPadding(0, dp(8), 0, dp(8));
         root.addView(title, new LinearLayout.LayoutParams(-1, -2));
 
         TextView desc = new TextView(this);
-        desc.setText("悬浮显示 CPU / GPU / 内存 / 温度\n默认每 1 秒刷新，可拖动悬浮框。\n\nV3 新增 GPU 节点诊断，用于定位 HyperOS 下 GPU 占用/频率 N/A 的具体原因。");
+        desc.setText("悬浮显示 CPU / GPU / 内存 / 温度\n默认每 1 秒刷新，可拖动悬浮框。\n\nK90 / HyperOS 会阻止普通 APK 读取 KGSL GPU 节点。V4 增加 Shizuku shell 后端，用于读取 GPU 占用率和频率，无需 Root。");
         desc.setTextSize(15);
         desc.setTextColor(Color.DKGRAY);
         desc.setLineSpacing(0, 1.2f);
@@ -65,7 +96,7 @@ public class MainActivity extends Activity {
         root.addView(desc, new LinearLayout.LayoutParams(-1, -2));
 
         status = new TextView(this);
-        status.setTextSize(15);
+        status.setTextSize(14);
         status.setTextColor(Color.rgb(20, 20, 20));
         status.setPadding(dp(12), dp(12), dp(12), dp(12));
         root.addView(status, new LinearLayout.LayoutParams(-1, -2));
@@ -74,7 +105,11 @@ public class MainActivity extends Activity {
         grant.setOnClickListener(v -> requestOverlayPermission());
         root.addView(grant, buttonLp());
 
-        Button start = makeButton("2. 开始悬浮监控");
+        Button shizuku = makeButton("2. 授权 Shizuku（GPU）");
+        shizuku.setOnClickListener(v -> requestShizukuPermission());
+        root.addView(shizuku, buttonLp());
+
+        Button start = makeButton("3. 开始悬浮监控");
         start.setOnClickListener(v -> startMonitor());
         root.addView(start, buttonLp());
 
@@ -82,7 +117,7 @@ public class MainActivity extends Activity {
         stop.setOnClickListener(v -> stopService(new Intent(this, OverlayMonitorService.class)));
         root.addView(stop, buttonLp());
 
-        Button diagnose = makeButton("3. GPU 节点诊断");
+        Button diagnose = makeButton("GPU 节点诊断");
         diagnose.setOnClickListener(v -> runDiagnostics(diagnose));
         root.addView(diagnose, buttonLp());
 
@@ -91,7 +126,7 @@ public class MainActivity extends Activity {
         root.addView(copy, buttonLp());
 
         diagnosticsView = new TextView(this);
-        diagnosticsView.setText("诊断结果会显示在这里。\n如果 GPU 仍为 N/A，请点“GPU 节点诊断”，完成后点“复制诊断结果”发给我。");
+        diagnosticsView.setText("GPU 仍为 N/A 时，可再次运行节点诊断。\nV4 授权 Shizuku 后，悬浮框底部应显示 GPU BACKEND: SHIZUKU。");
         diagnosticsView.setTextSize(11);
         diagnosticsView.setTextColor(Color.rgb(40, 40, 40));
         diagnosticsView.setTextIsSelectable(true);
@@ -99,7 +134,7 @@ public class MainActivity extends Activity {
         root.addView(diagnosticsView, new LinearLayout.LayoutParams(-1, -2));
 
         TextView hint = new TextView(this);
-        hint.setText("红米 / 小米 HyperOS：如悬浮窗被系统回收，可在系统应用管理里允许后台运行或关闭本应用的省电限制。GPU 诊断只读取系统公开/可访问节点，不需要 Root。\n");
+        hint.setText("使用方法：先在手机安装并启动 Shizuku（推荐通过无线调试启动），然后回到本应用点击“授权 Shizuku（GPU）”。Shizuku 每次重启手机后通常需要重新启动。\n\n如果 Shizuku 已授权后 GPU 仍为 N/A，说明 shell SELinux 也被限制，届时再考虑 Root 后端。");
         hint.setTextSize(13);
         hint.setTextColor(Color.GRAY);
         hint.setPadding(0, dp(16), 0, dp(16));
@@ -131,6 +166,19 @@ public class MainActivity extends Activity {
         startActivity(intent);
     }
 
+    private void requestShizukuPermission() {
+        if (!ShizukuBridge.isBinderReady()) {
+            Toast.makeText(this, "Shizuku 未运行，请先打开 Shizuku 并通过无线调试启动", Toast.LENGTH_LONG).show();
+            return;
+        }
+        if (ShizukuBridge.hasPermission()) {
+            Toast.makeText(this, "Shizuku 已授权", Toast.LENGTH_SHORT).show();
+            updateStatus();
+            return;
+        }
+        ShizukuBridge.requestPermission();
+    }
+
     private void startMonitor() {
         if (!Settings.canDrawOverlays(this)) {
             Toast.makeText(this, "请先授权悬浮窗权限", Toast.LENGTH_LONG).show();
@@ -146,11 +194,19 @@ public class MainActivity extends Activity {
     private void runDiagnostics(Button button) {
         button.setEnabled(false);
         button.setText("正在诊断，请稍候…");
-        diagnosticsView.setText("正在扫描 KGSL / devfreq / GPU 系统节点…");
+        diagnosticsView.setText("正在扫描 KGSL / devfreq / GPU 系统节点…\n" + ShizukuBridge.getBackendInfo());
         new Thread(() -> {
             String report;
             try {
                 report = GpuDiagnostics.run();
+                report += "\n[Shizuku]\n" + ShizukuBridge.getBackendInfo() + "\n";
+                if (ShizukuBridge.hasPermission()) {
+                    report += "gpu_busy_percentage=" + ShizukuBridge.readFirstLine("/sys/class/kgsl/kgsl-3d0/gpu_busy_percentage") + "\n";
+                    report += "gpu_load=" + ShizukuBridge.readFirstLine("/sys/class/kgsl/kgsl-3d0/devfreq/gpu_load") + "\n";
+                    report += "gpubusy=" + ShizukuBridge.readFirstLine("/sys/class/kgsl/kgsl-3d0/gpubusy") + "\n";
+                    report += "cur_freq=" + ShizukuBridge.readFirstLine("/sys/class/kgsl/kgsl-3d0/devfreq/cur_freq") + "\n";
+                    report += "clock_mhz=" + ShizukuBridge.readFirstLine("/sys/class/kgsl/kgsl-3d0/clock_mhz") + "\n";
+                }
             } catch (Throwable e) {
                 report = "GPU diagnostics failed: " + e.getClass().getSimpleName() + ": " + e.getMessage();
             }
@@ -159,7 +215,7 @@ public class MainActivity extends Activity {
                 lastDiagnostics = finalReport;
                 diagnosticsView.setText(finalReport);
                 button.setEnabled(true);
-                button.setText("3. GPU 节点诊断");
+                button.setText("GPU 节点诊断");
                 Toast.makeText(this, "GPU 诊断完成，可复制结果", Toast.LENGTH_SHORT).show();
             });
         }, "gpu-diagnostics").start();
@@ -178,7 +234,8 @@ public class MainActivity extends Activity {
     private void updateStatus() {
         if (status == null) return;
         boolean overlay = Settings.canDrawOverlays(this);
-        status.setText("悬浮窗权限：" + (overlay ? "已开启 ✓" : "未开启 ✗"));
+        status.setText("悬浮窗权限：" + (overlay ? "已开启 ✓" : "未开启 ✗") +
+                "\nGPU 提权后端：" + ShizukuBridge.getBackendInfo());
     }
 
     private void requestNotificationPermissionIfNeeded() {
