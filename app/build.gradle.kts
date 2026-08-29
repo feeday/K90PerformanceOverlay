@@ -10,8 +10,8 @@ android {
         applicationId = "com.ppt.k90monitor"
         minSdk = 26
         targetSdk = 36
-        versionCode = 5
-        versionName = "4.1"
+        versionCode = 6
+        versionName = "5.0"
     }
 
     buildTypes {
