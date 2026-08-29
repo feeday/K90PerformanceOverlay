@@ -140,15 +140,15 @@ public final class RedMagicBridgeReader {
                 "logcat -v brief -T 1 -s neoDevice:V '*:S' | while IFS= read -r line; do\n" +
                 "  case \"$line\" in\n" +
                 "    *\"onTemperature values=[\"*)\n" +
-                "      V=$(echo \"$line\" | sed -n 's/.*onTemperature values=\\[\\([0-9][0-9]*\\)\\].*/\\1/p')\n" +
+                "      V=$(echo \"$line\" | sed -n 's/.*onTemperature values=\\[\\(-\\{0,1\\}[0-9][0-9]*\\)\\].*/\\1/p')\n" +
                 "      if [ -n \"$V\" ]; then TEMP=$V; write_state; fi\n" +
                 "      ;;\n" +
                 "    *\"onTemp changed [\"*)\n" +
-                "      V=$(echo \"$line\" | sed -n 's/.*onTemp changed \\[\\([0-9][0-9]*\\)\\].*/\\1/p')\n" +
+                "      V=$(echo \"$line\" | sed -n 's/.*onTemp changed \\[\\(-\\{0,1\\}[0-9][0-9]*\\)\\].*/\\1/p')\n" +
                 "      if [ -n \"$V\" ]; then TEMP=$V; write_state; fi\n" +
                 "      ;;\n" +
                 "    *\"showTemperature=\"*)\n" +
-                "      V=$(echo \"$line\" | sed -n 's/.*showTemperature=\\([0-9][0-9]*\\).*/\\1/p')\n" +
+                "      V=$(echo \"$line\" | sed -n 's/.*showTemperature=\\(-\\{0,1\\}[0-9][0-9]*\\).*/\\1/p')\n" +
                 "      if [ -n \"$V\" ]; then TEMP=$V; write_state; fi\n" +
                 "      ;;\n" +
                 "    *\"onFanSpeed value=\"*)\n" +
