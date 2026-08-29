@@ -6,6 +6,7 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.net.Uri;
@@ -23,10 +24,12 @@ import android.widget.Toast;
 public class MainActivity extends Activity {
     private TextView status;
     private RedMagicBridgeReader bridge;
+    private SharedPreferences prefs;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         bridge = new RedMagicBridgeReader(this);
+        prefs = getSharedPreferences(OverlayMonitorService.PREFS, MODE_PRIVATE);
         setContentView(buildUi());
         requestNotificationPermissionIfNeeded();
         updateStatus();
@@ -48,14 +51,14 @@ public class MainActivity extends Activity {
         scroll.addView(root, new ScrollView.LayoutParams(-1, -2));
 
         TextView title = new TextView(this);
-        title.setText("K90 性能悬浮监控 5.4");
+        title.setText("K90 性能悬浮监控 5.5");
         title.setTextSize(24);
         title.setTextColor(Color.rgb(20, 20, 20));
         title.setPadding(0, dp(8), 0, dp(8));
         root.addView(title, new LinearLayout.LayoutParams(-1, -2));
 
         TextView desc = new TextView(this);
-        desc.setText("独立模式：无需红魔散热器、无需 AYA、无需蓝牙，也可以直接使用 CPU / GPU温度 / 电池温度 / RAM 悬浮监控。\n\n红魔散热器数据是可选扩展：有数据时额外显示背夹温度、风扇转速和功耗；没有数据时只显示 --，不会影响系统监控。");
+        desc.setText("支持两种显示模式：\n\n温度模式：只显示 CPU 温度、GPU 温度；红魔实时数据存在时再显示背夹温度。\n\n全部模式：显示 CPU 占用/频率/温度、GPU温度、电池温度、RAM、实时上传/下载网速、当前屏幕刷新率；红魔实时数据存在时再追加背夹温度、RPM 和功耗。");
         desc.setTextSize(15);
         desc.setTextColor(Color.DKGRAY);
         desc.setLineSpacing(0, 1.2f);
@@ -72,7 +75,24 @@ public class MainActivity extends Activity {
         overlay.setOnClickListener(v -> requestOverlayPermission());
         root.addView(overlay, buttonLp());
 
-        Button start = makeButton("2. 开始 K90 系统悬浮监控");
+        TextView modeTitle = new TextView(this);
+        modeTitle.setText("2. 选择显示模式");
+        modeTitle.setTextSize(18);
+        modeTitle.setTextColor(Color.BLACK);
+        modeTitle.setPadding(0, dp(18), 0, dp(4));
+        root.addView(modeTitle, new LinearLayout.LayoutParams(-1, -2));
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        Button tempMode = makeButton("温度模式");
+        tempMode.setOnClickListener(v -> setMode(OverlayMonitorService.MODE_TEMP));
+        row.addView(tempMode, weightedButton());
+        Button fullMode = makeButton("全部模式");
+        fullMode.setOnClickListener(v -> setMode(OverlayMonitorService.MODE_FULL));
+        row.addView(fullMode, weightedButton());
+        root.addView(row, new LinearLayout.LayoutParams(-1, -2));
+
+        Button start = makeButton("3. 开始悬浮监控");
         start.setOnClickListener(v -> startMonitor());
         root.addView(start, buttonLp());
 
@@ -96,12 +116,18 @@ public class MainActivity extends Activity {
         root.addView(copyStart, buttonLp());
 
         TextView note = new TextView(this);
-        note.setText("普通 Android APK 无权直接读取另一个 App 的 logcat。当前红魔官方 App 日志读取仍需要具有 shell/root 权限的桥接环境；如果不使用它，K90 系统监视器仍然完全可用。\n\n后续可加入 Shizuku 模式，让 APK 内点击按钮启动具有 shell 身份的红魔日志读取，不必手动进入 AYA。");
+        note.setText("说明：全部模式里的“DISPLAY xx Hz”是当前屏幕刷新率，不冒充游戏真实渲染 FPS。普通 APK 无法可靠读取其他游戏的真实 FPS；后续可通过 Shizuku/系统级接口扩展。\n\n没有红魔实时 RPM 时，悬浮窗不会显示任何红魔相关内容。");
         note.setTextSize(13);
         note.setTextColor(Color.GRAY);
         note.setPadding(0, dp(16), 0, dp(16));
         root.addView(note, new LinearLayout.LayoutParams(-1, -2));
         return scroll;
+    }
+
+    private void setMode(String mode) {
+        prefs.edit().putString(OverlayMonitorService.KEY_MODE, mode).apply();
+        Toast.makeText(this, OverlayMonitorService.MODE_TEMP.equals(mode) ? "已切换：温度模式" : "已切换：全部模式", Toast.LENGTH_SHORT).show();
+        updateStatus();
     }
 
     private Button makeButton(String text) {
@@ -115,6 +141,12 @@ public class MainActivity extends Activity {
     private LinearLayout.LayoutParams buttonLp() {
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(54));
         lp.topMargin = dp(10);
+        return lp;
+    }
+
+    private LinearLayout.LayoutParams weightedButton() {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(54), 1f);
+        lp.setMargins(dp(2), dp(5), dp(2), dp(5));
         return lp;
     }
 
@@ -140,23 +172,19 @@ public class MainActivity extends Activity {
         }
         Intent i = new Intent(this, OverlayMonitorService.class);
         if (Build.VERSION.SDK_INT >= 26) startForegroundService(i); else startService(i);
-        Toast.makeText(this, "K90 系统悬浮监控已启动", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "K90 悬浮监控已启动", Toast.LENGTH_SHORT).show();
     }
 
     private void updateStatus() {
         if (status == null || bridge == null) return;
         RedMagicBridgeReader.State s = bridge.read();
-        String rmState = (!s.fileExists || s.stale) ? "未连接 / 无实时数据（不影响系统监控）" : "实时数据 ✓";
+        String rmState = (!s.fileExists || s.stale || s.fanRpm < 0) ? "无实时数据" : "实时数据 ✓";
+        String mode = prefs.getString(OverlayMonitorService.KEY_MODE, OverlayMonitorService.MODE_FULL);
         status.setText("悬浮窗权限：" + (Settings.canDrawOverlays(this) ? "已开启 ✓" : "未开启 ✗") +
+                "\n显示模式：" + (OverlayMonitorService.MODE_TEMP.equals(mode) ? "温度模式" : "全部模式") +
                 "\n系统监控：可独立使用 ✓" +
-                "\n红魔扩展：" + rmState +
-                "\n背夹温度：" + temp(s.clampTempC) +
-                "\n风扇转速：" + rpm(s.fanRpm) +
-                "\n功耗：" + RedMagicBridgeReader.formatPower(s.powerW));
+                "\n红魔扩展：" + rmState);
     }
-
-    private String temp(float v) { return Float.isNaN(v) ? "--" : String.format(java.util.Locale.US, "%.1f°C", v); }
-    private String rpm(int v) { return v < 0 ? "--" : v + " RPM"; }
 
     private void requestNotificationPermissionIfNeeded() {
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
