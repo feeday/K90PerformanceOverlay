@@ -35,6 +35,7 @@ public class OverlayMonitorService extends Service {
     private TextView text;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private MetricReader reader;
+    private CoolerBleManager cooler;
 
     private final Runnable tick = new Runnable() {
         @Override public void run() {
@@ -47,6 +48,8 @@ public class OverlayMonitorService extends Service {
     public void onCreate() {
         super.onCreate();
         reader = new MetricReader(this);
+        cooler = CoolerBleManager.get(this);
+        if (cooler.hasPermissions()) cooler.startAutoConnect();
         createNotificationChannel();
         startForeground(NOTIFICATION_ID, buildNotification());
         if (!Settings.canDrawOverlays(this)) {
@@ -81,7 +84,7 @@ public class OverlayMonitorService extends Service {
         box.setBackground(bg);
 
         TextView title = new TextView(this);
-        title.setText("K90 MONITOR 4.1  ·  拖动");
+        title.setText("K90 MONITOR 5.0  ·  拖动");
         title.setTextColor(0xFFB8E1FF);
         title.setTextSize(10);
         title.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
@@ -127,6 +130,7 @@ public class OverlayMonitorService extends Service {
     private void updateMetrics() {
         if (text == null) return;
         MetricReader.Snapshot s = reader.read();
+        CoolerBleManager.State c = cooler.getState();
 
         String cpu = String.format(Locale.US, "CPU %s  %s  %s",
                 pct(s.cpuUsage), freq(s.cpuFreqMHz), temp(s.cpuTempC));
@@ -135,7 +139,12 @@ public class OverlayMonitorService extends Service {
         String mem = String.format(Locale.US, "RAM %s / %s  %s",
                 gb(s.memUsedBytes), gb(s.memTotalBytes), pct(s.memUsage));
 
-        text.setText(cpu + "\n" + thermal + "\n" + mem);
+        String rm = "RM  " + (c.connected ? "已连接" : (c.scanning ? "扫描中" : "未连接")) +
+                "   COOL " + onOff(c.coolerOn);
+        String fan = "FAN " + rpm(c.fanRpm) + "   CLAMP " + temp(c.clampTempC);
+        String pwr = "PWR " + power(c.powerW);
+
+        text.setText(cpu + "\n" + thermal + "\n" + mem + "\n\n" + rm + "\n" + fan + "\n" + pwr);
     }
 
     private String pct(float v) {
@@ -149,7 +158,7 @@ public class OverlayMonitorService extends Service {
     }
 
     private String temp(float c) {
-        return Float.isNaN(c) ? "N/A" : String.format(Locale.US, "%4.1f°C", c);
+        return Float.isNaN(c) ? "--" : String.format(Locale.US, "%4.1f°C", c);
     }
 
     private String gb(long bytes) {
@@ -157,12 +166,24 @@ public class OverlayMonitorService extends Service {
         return String.format(Locale.US, "%.1fG", bytes / 1073741824.0);
     }
 
+    private String rpm(int v) {
+        return v < 0 ? "---- RPM" : String.format(Locale.US, "%4d RPM", v);
+    }
+
+    private String power(float w) {
+        return Float.isNaN(w) ? "--" : String.format(Locale.US, "%.1f W", w);
+    }
+
+    private String onOff(Boolean v) {
+        return v == null ? "--" : (v ? "ON" : "OFF");
+    }
+
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= 26) {
             NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
             NotificationChannel ch = new NotificationChannel(CHANNEL_ID, "性能悬浮监控",
                     NotificationManager.IMPORTANCE_LOW);
-            ch.setDescription("保持 CPU/GPU/内存悬浮性能监控运行");
+            ch.setDescription("保持系统性能与红魔散热器悬浮监控运行");
             nm.createNotificationChannel(ch);
         }
     }
@@ -180,8 +201,8 @@ public class OverlayMonitorService extends Service {
         Notification.Builder b = Build.VERSION.SDK_INT >= 26
                 ? new Notification.Builder(this, CHANNEL_ID)
                 : new Notification.Builder(this);
-        return b.setContentTitle("K90 性能悬浮监控 4.1")
-                .setContentText("CPU / GPU温度 / 电池 / RAM 监控运行中")
+        return b.setContentTitle("K90 性能 + 红魔散热器监控 5.0")
+                .setContentText("CPU / GPU温度 / RAM / Cooler BLE")
                 .setSmallIcon(android.R.drawable.stat_notify_sync)
                 .setContentIntent(content)
                 .setOngoing(true)
