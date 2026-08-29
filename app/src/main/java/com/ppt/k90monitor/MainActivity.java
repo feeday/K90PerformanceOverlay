@@ -58,7 +58,7 @@ public class MainActivity extends Activity {
         root.addView(title, new LinearLayout.LayoutParams(-1, -2));
 
         TextView desc = new TextView(this);
-        desc.setText("支持两种显示模式：\n\n温度模式：只显示 CPU 温度、GPU 温度；红魔实时数据存在时再显示背夹温度。\n\n全部模式：显示 CPU 占用/频率/温度、GPU温度、电池温度、RAM、实时上传/下载网速、当前屏幕刷新率；红魔实时数据存在时再追加背夹温度、RPM 和功耗。");
+        desc.setText("支持两种显示模式：\n\n温度模式：只显示 CPU 温度、GPU 温度；红魔实时数据存在时再显示背夹温度。\n\n全部模式：显示 CPU 占用/频率/温度、GPU温度、电池温度、RAM、实时上传/下载网速；红魔实时数据存在时再追加背夹温度、RPM 和功耗。");
         desc.setTextSize(15);
         desc.setTextColor(Color.DKGRAY);
         desc.setLineSpacing(0, 1.2f);
@@ -116,7 +116,7 @@ public class MainActivity extends Activity {
         root.addView(copyStart, buttonLp());
 
         TextView note = new TextView(this);
-        note.setText("说明：全部模式里的“DISPLAY xx Hz”是当前屏幕刷新率，不冒充游戏真实渲染 FPS。普通 APK 无法可靠读取其他游戏的真实 FPS；后续可通过 Shizuku/系统级接口扩展。\n\n没有红魔实时 RPM 时，悬浮窗不会显示任何红魔相关内容。");
+        note.setText("说明：已移除屏幕刷新率/帧率显示，只保留实时上传和下载网速。没有红魔实时 RPM 时，悬浮窗不会显示任何红魔相关内容。");
         note.setTextSize(13);
         note.setTextColor(Color.GRAY);
         note.setPadding(0, dp(16), 0, dp(16));
