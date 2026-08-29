@@ -155,14 +155,12 @@ public class OverlayMonitorService extends Service {
         String thermal = String.format(Locale.US, "GPU %s   BAT %s", temp(s.gpuTempC), temp(s.batteryTempC));
         String mem = String.format(Locale.US, "RAM %s / %s  %s", gb(s.memUsedBytes), gb(s.memTotalBytes), pct(s.memUsage));
         String net = "NET ↓" + speed(n.downBytesPerSec) + "  ↑" + speed(n.upBytesPerSec);
-        String hz = "DISPLAY " + refresh(n.refreshRateHz);
 
         StringBuilder out = new StringBuilder();
         out.append(cpu).append('\n')
                 .append(thermal).append('\n')
                 .append(mem).append('\n')
-                .append(net).append('\n')
-                .append(hz);
+                .append(net);
 
         if (hasLiveRedMagic) {
             out.append("\n\nREDMAGIC")
@@ -188,10 +186,6 @@ public class OverlayMonitorService extends Service {
         if (bytesPerSec >= 1024 * 1024) return String.format(Locale.US, "%.1fMB/s", bytesPerSec / (1024.0 * 1024.0));
         if (bytesPerSec >= 1024) return String.format(Locale.US, "%.0fKB/s", bytesPerSec / 1024.0);
         return String.format(Locale.US, "%.0fB/s", bytesPerSec);
-    }
-
-    private String refresh(float hz) {
-        return Float.isNaN(hz) ? "-- Hz" : String.format(Locale.US, "%.0f Hz", hz);
     }
 
     private void createNotificationChannel() {
