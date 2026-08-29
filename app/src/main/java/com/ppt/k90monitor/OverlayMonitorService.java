@@ -81,7 +81,7 @@ public class OverlayMonitorService extends Service {
         box.setBackground(bg);
 
         TextView title = new TextView(this);
-        title.setText("K90 MONITOR  ·  拖动");
+        title.setText("K90 MONITOR V2  ·  拖动");
         title.setTextColor(0xFFB8E1FF);
         title.setTextSize(10);
         title.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
@@ -179,7 +179,7 @@ public class OverlayMonitorService extends Service {
         Notification.Builder b = Build.VERSION.SDK_INT >= 26
                 ? new Notification.Builder(this, CHANNEL_ID)
                 : new Notification.Builder(this);
-        return b.setContentTitle("K90 性能悬浮监控")
+        return b.setContentTitle("K90 性能悬浮监控 V2")
                 .setContentText("CPU / GPU / RAM / 温度监控运行中")
                 .setSmallIcon(android.R.drawable.stat_notify_sync)
                 .setContentIntent(content)
