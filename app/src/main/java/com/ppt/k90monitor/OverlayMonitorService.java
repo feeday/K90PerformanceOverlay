@@ -35,6 +35,7 @@ public class OverlayMonitorService extends Service {
     private TextView text;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private MetricReader reader;
+    private PrivilegedGpuReader privilegedGpuReader;
 
     private final Runnable tick = new Runnable() {
         @Override public void run() {
@@ -47,6 +48,7 @@ public class OverlayMonitorService extends Service {
     public void onCreate() {
         super.onCreate();
         reader = new MetricReader(this);
+        privilegedGpuReader = new PrivilegedGpuReader();
         createNotificationChannel();
         startForeground(NOTIFICATION_ID, buildNotification());
         if (!Settings.canDrawOverlays(this)) {
@@ -81,7 +83,7 @@ public class OverlayMonitorService extends Service {
         box.setBackground(bg);
 
         TextView title = new TextView(this);
-        title.setText("K90 MONITOR V2  ·  拖动");
+        title.setText("K90 MONITOR V4  ·  拖动");
         title.setTextColor(0xFFB8E1FF);
         title.setTextSize(10);
         title.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
@@ -127,6 +129,15 @@ public class OverlayMonitorService extends Service {
     private void updateMetrics() {
         if (text == null) return;
         MetricReader.Snapshot s = reader.read();
+
+        boolean shizuku = ShizukuBridge.hasPermission();
+        if (Float.isNaN(s.gpuUsage) && shizuku) {
+            s.gpuUsage = privilegedGpuReader.readUsage();
+        }
+        if (Float.isNaN(s.gpuFreqMHz) && shizuku) {
+            s.gpuFreqMHz = privilegedGpuReader.readFreqMHz();
+        }
+
         String cpu = String.format(Locale.US, "CPU %s  %s  %s",
                 pct(s.cpuUsage), freq(s.cpuFreqMHz), temp(s.cpuTempC));
         String gpu = String.format(Locale.US, "GPU %s  %s  %s",
@@ -134,7 +145,8 @@ public class OverlayMonitorService extends Service {
         String mem = String.format(Locale.US, "RAM %s / %s  %s",
                 gb(s.memUsedBytes), gb(s.memTotalBytes), pct(s.memUsage));
         String bat = "BAT " + temp(s.batteryTempC);
-        text.setText(cpu + "\n" + gpu + "\n" + mem + "\n" + bat);
+        String backend = shizuku ? "GPU BACKEND: SHIZUKU" : "GPU BACKEND: APP";
+        text.setText(cpu + "\n" + gpu + "\n" + mem + "\n" + bat + "\n" + backend);
     }
 
     private String pct(float v) {
@@ -179,7 +191,7 @@ public class OverlayMonitorService extends Service {
         Notification.Builder b = Build.VERSION.SDK_INT >= 26
                 ? new Notification.Builder(this, CHANNEL_ID)
                 : new Notification.Builder(this);
-        return b.setContentTitle("K90 性能悬浮监控 V2")
+        return b.setContentTitle("K90 性能悬浮监控 V4")
                 .setContentText("CPU / GPU / RAM / 温度监控运行中")
                 .setSmallIcon(android.R.drawable.stat_notify_sync)
                 .setContentIntent(content)
