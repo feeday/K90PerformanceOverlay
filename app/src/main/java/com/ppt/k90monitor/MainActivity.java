@@ -48,14 +48,14 @@ public class MainActivity extends Activity {
         scroll.addView(root, new ScrollView.LayoutParams(-1, -2));
 
         TextView title = new TextView(this);
-        title.setText("K90 性能悬浮监控 5.3");
+        title.setText("K90 性能悬浮监控 5.4");
         title.setTextSize(24);
         title.setTextColor(Color.rgb(20, 20, 20));
         title.setPadding(0, dp(8), 0, dp(8));
         root.addView(title, new LinearLayout.LayoutParams(-1, -2));
 
         TextView desc = new TextView(this);
-        desc.setText("红魔散热器使用 AYA 文件桥接：红魔官方 App 负责连接/鉴权；AYA shell 读取 neoDevice 日志并持续写入本 App 目录；本 App 只读取文件显示背夹温度、风扇转速和功耗。无需 READ_LOGS，也不会抢占 BLE。\n\n首次进入 5.3 会自动生成 redmagic_bridge.sh。");
+        desc.setText("独立模式：无需红魔散热器、无需 AYA、无需蓝牙，也可以直接使用 CPU / GPU温度 / 电池温度 / RAM 悬浮监控。\n\n红魔散热器数据是可选扩展：有数据时额外显示背夹温度、风扇转速和功耗；没有数据时只显示 --，不会影响系统监控。");
         desc.setTextSize(15);
         desc.setTextColor(Color.DKGRAY);
         desc.setLineSpacing(0, 1.2f);
@@ -72,32 +72,35 @@ public class MainActivity extends Activity {
         overlay.setOnClickListener(v -> requestOverlayPermission());
         root.addView(overlay, buttonLp());
 
-        Button copyStart = makeButton("2. 复制 AYA 桥接启动命令");
-        copyStart.setOnClickListener(v -> copy(bridge.shellStartCommand(), "桥接启动命令已复制"));
-        root.addView(copyStart, buttonLp());
-
-        Button copyStop = makeButton("复制 AYA 桥接停止命令");
-        copyStop.setOnClickListener(v -> copy(bridge.shellStopCommand(), "桥接停止命令已复制"));
-        root.addView(copyStop, buttonLp());
-
-        Button start = makeButton("3. 开始悬浮监控");
+        Button start = makeButton("2. 开始 K90 系统悬浮监控");
         start.setOnClickListener(v -> startMonitor());
         root.addView(start, buttonLp());
-
-        Button refresh = makeButton("刷新桥接状态");
-        refresh.setOnClickListener(v -> updateStatus());
-        root.addView(refresh, buttonLp());
 
         Button stop = makeButton("停止悬浮监控");
         stop.setOnClickListener(v -> stopService(new Intent(this, OverlayMonitorService.class)));
         root.addView(stop, buttonLp());
 
-        TextView steps = new TextView(this);
-        steps.setText("使用顺序：\n\n① 打开红魔官方 App，确认散热器正常显示温度/转速/功耗。\n② 在 AYA shell 粘贴“桥接启动命令”。\n③ 回到本 App 点“开始悬浮监控”。\n\n桥接文件：\n" + bridge.metricsPathForShell() + "\n\nAYA 启动命令：\n" + bridge.shellStartCommand());
-        steps.setTextSize(13);
-        steps.setTextColor(Color.GRAY);
-        steps.setPadding(0, dp(16), 0, dp(16));
-        root.addView(steps, new LinearLayout.LayoutParams(-1, -2));
+        TextView optional = new TextView(this);
+        optional.setText("红魔散热器（可选）");
+        optional.setTextSize(18);
+        optional.setTextColor(Color.BLACK);
+        optional.setPadding(0, dp(24), 0, dp(6));
+        root.addView(optional, new LinearLayout.LayoutParams(-1, -2));
+
+        Button refresh = makeButton("刷新红魔数据状态");
+        refresh.setOnClickListener(v -> updateStatus());
+        root.addView(refresh, buttonLp());
+
+        Button copyStart = makeButton("可选：复制 AYA 桥接启动命令");
+        copyStart.setOnClickListener(v -> copy(bridge.shellStartCommand(), "桥接启动命令已复制"));
+        root.addView(copyStart, buttonLp());
+
+        TextView note = new TextView(this);
+        note.setText("普通 Android APK 无权直接读取另一个 App 的 logcat。当前红魔官方 App 日志读取仍需要具有 shell/root 权限的桥接环境；如果不使用它，K90 系统监视器仍然完全可用。\n\n后续可加入 Shizuku 模式，让 APK 内点击按钮启动具有 shell 身份的红魔日志读取，不必手动进入 AYA。");
+        note.setTextSize(13);
+        note.setTextColor(Color.GRAY);
+        note.setPadding(0, dp(16), 0, dp(16));
+        root.addView(note, new LinearLayout.LayoutParams(-1, -2));
         return scroll;
     }
 
@@ -137,14 +140,16 @@ public class MainActivity extends Activity {
         }
         Intent i = new Intent(this, OverlayMonitorService.class);
         if (Build.VERSION.SDK_INT >= 26) startForegroundService(i); else startService(i);
-        Toast.makeText(this, "悬浮监控已启动", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "K90 系统悬浮监控已启动", Toast.LENGTH_SHORT).show();
     }
 
     private void updateStatus() {
         if (status == null || bridge == null) return;
         RedMagicBridgeReader.State s = bridge.read();
+        String rmState = (!s.fileExists || s.stale) ? "未连接 / 无实时数据（不影响系统监控）" : "实时数据 ✓";
         status.setText("悬浮窗权限：" + (Settings.canDrawOverlays(this) ? "已开启 ✓" : "未开启 ✗") +
-                "\n桥接状态：" + s.message +
+                "\n系统监控：可独立使用 ✓" +
+                "\n红魔扩展：" + rmState +
                 "\n背夹温度：" + temp(s.clampTempC) +
                 "\n风扇转速：" + rpm(s.fanRpm) +
                 "\n功耗：" + RedMagicBridgeReader.formatPower(s.powerW));
