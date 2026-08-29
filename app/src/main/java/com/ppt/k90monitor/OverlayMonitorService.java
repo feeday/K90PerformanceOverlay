@@ -82,7 +82,7 @@ public class OverlayMonitorService extends Service {
         box.setBackground(bg);
 
         TextView title = new TextView(this);
-        title.setText("K90 MONITOR 5.3 · REDMAGIC BRIDGE");
+        title.setText("K90 MONITOR 5.4");
         title.setTextColor(0xFFB8E1FF);
         title.setTextSize(10);
         title.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
@@ -128,11 +128,20 @@ public class OverlayMonitorService extends Service {
         String cpu = String.format(Locale.US, "CPU %s  %s  %s", pct(s.cpuUsage), freq(s.cpuFreqMHz), temp(s.cpuTempC));
         String thermal = String.format(Locale.US, "GPU %s   BAT %s", temp(s.gpuTempC), temp(s.batteryTempC));
         String mem = String.format(Locale.US, "RAM %s / %s  %s", gb(s.memUsedBytes), gb(s.memTotalBytes), pct(s.memUsage));
-        String rm = "RM  " + r.message;
-        String fan = "FAN " + rpm(r.fanRpm) + "   CLAMP " + temp(r.clampTempC);
-        String pwr = "PWR " + RedMagicBridgeReader.formatPower(r.powerW);
 
-        text.setText(cpu + "\n" + thermal + "\n" + mem + "\n\n" + rm + "\n" + fan + "\n" + pwr);
+        StringBuilder out = new StringBuilder();
+        out.append(cpu).append('\n').append(thermal).append('\n').append(mem);
+
+        // REDMAGIC section is completely hidden unless fresh fan telemetry exists.
+        boolean hasLiveRedMagic = r.fileExists && !r.stale && r.fanRpm >= 0;
+        if (hasLiveRedMagic) {
+            out.append("\n\nREDMAGIC")
+                    .append("\nFAN ").append(rpm(r.fanRpm))
+                    .append("   CLAMP ").append(temp(r.clampTempC))
+                    .append("\nPWR ").append(RedMagicBridgeReader.formatPower(r.powerW));
+        }
+
+        text.setText(out.toString());
     }
 
     private String pct(float v) { return Float.isNaN(v) ? "N/A" : String.format(Locale.US, "%5.1f%%", v); }
@@ -148,7 +157,7 @@ public class OverlayMonitorService extends Service {
         if (Build.VERSION.SDK_INT >= 26) {
             NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
             NotificationChannel ch = new NotificationChannel(CHANNEL_ID, "性能悬浮监控", NotificationManager.IMPORTANCE_LOW);
-            ch.setDescription("系统性能与红魔散热器文件桥接遥测");
+            ch.setDescription("K90 系统性能监控；红魔散热器遥测可选显示");
             nm.createNotificationChannel(ch);
         }
     }
@@ -160,8 +169,8 @@ public class OverlayMonitorService extends Service {
         stop.setAction("STOP");
         PendingIntent stopPi = PendingIntent.getService(this, 2, stop, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         Notification.Builder b = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(this, CHANNEL_ID) : new Notification.Builder(this);
-        return b.setContentTitle("K90 + 红魔桥接监控 5.3")
-                .setContentText("背夹温度 / 风扇转速 / 功耗来自 AYA logcat 桥接")
+        return b.setContentTitle("K90 性能悬浮监控 5.4")
+                .setContentText("CPU / GPU温度 / BAT / RAM；红魔数据有则显示")
                 .setSmallIcon(android.R.drawable.stat_notify_sync)
                 .setContentIntent(content)
                 .setOngoing(true)
