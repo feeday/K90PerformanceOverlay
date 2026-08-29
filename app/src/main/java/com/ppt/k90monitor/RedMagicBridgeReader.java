@@ -9,12 +9,13 @@ import java.io.FileWriter;
 import java.util.Locale;
 
 /**
- * Reads REDMAGIC Cooler 8 Pro telemetry from a file written by an AYA/shell bridge.
- * The Android app itself never reads logcat and never connects to the cooler.
+ * Reads REDMAGIC Cooler 8 Pro telemetry from a file written by a shell bridge.
+ * The Android app itself never reads another app's logcat and never connects to the cooler.
  */
 public final class RedMagicBridgeReader {
     private static final String METRICS_FILE = "redmagic_metrics.txt";
     private static final String SCRIPT_FILE = "redmagic_bridge.sh";
+    private static final String PID_FILE = "redmagic_bridge.pid";
     private static final long STALE_MS = 15_000L;
 
     public static final class State {
@@ -39,7 +40,7 @@ public final class RedMagicBridgeReader {
         File file = metricsFile();
         s.fileExists = file.exists();
         if (!s.fileExists) {
-            s.message = "等待 AYA 桥接";
+            s.message = "等待桥接数据";
             return s;
         }
 
@@ -103,12 +104,15 @@ public final class RedMagicBridgeReader {
 
     public String shellStartCommand() {
         ensureBridgeScript();
-        return "nohup sh /sdcard/Android/data/com.ppt.k90monitor/files/" + SCRIPT_FILE +
-                " >/sdcard/Android/data/com.ppt.k90monitor/files/redmagic_bridge.log 2>&1 &";
+        String base = "/sdcard/Android/data/com.ppt.k90monitor/files/";
+        return "pkill -f '[r]edmagic_bridge.sh' 2>/dev/null || true; " +
+                "sleep 1; rm -f " + base + METRICS_FILE + " " + base + "redmagic_metrics.tmp " + base + PID_FILE + "; " +
+                "nohup sh " + base + SCRIPT_FILE + " >" + base + "redmagic_bridge.log 2>&1 &";
     }
 
     public String shellStopCommand() {
-        return "pkill -f redmagic_bridge.sh";
+        String base = "/sdcard/Android/data/com.ppt.k90monitor/files/";
+        return "pkill -f '[r]edmagic_bridge.sh' 2>/dev/null || true; rm -f " + base + PID_FILE;
     }
 
     public String metricsPathForShell() {
@@ -123,10 +127,18 @@ public final class RedMagicBridgeReader {
 
     private String scriptText() {
         return "#!/system/bin/sh\n" +
-                "OUT=/sdcard/Android/data/com.ppt.k90monitor/files/redmagic_metrics.txt\n" +
-                "TMP=/sdcard/Android/data/com.ppt.k90monitor/files/redmagic_metrics.tmp\n" +
-                "mkdir -p /sdcard/Android/data/com.ppt.k90monitor/files\n" +
-                "TEMP=\nRPM=\nPOWER=\nHAS_DISPLAY_TEMP=0\n" +
+                "BASE=/sdcard/Android/data/com.ppt.k90monitor/files\n" +
+                "OUT=$BASE/redmagic_metrics.txt\n" +
+                "TMP=$BASE/redmagic_metrics.tmp\n" +
+                "PIDFILE=$BASE/redmagic_bridge.pid\n" +
+                "mkdir -p $BASE\n" +
+                "if [ -f $PIDFILE ]; then\n" +
+                "  OLD=$(cat $PIDFILE 2>/dev/null)\n" +
+                "  if [ -n \"$OLD\" ] && kill -0 $OLD 2>/dev/null; then kill $OLD 2>/dev/null; sleep 1; fi\n" +
+                "fi\n" +
+                "echo $$ > $PIDFILE\n" +
+                "trap 'rm -f $PIDFILE' EXIT INT TERM\n" +
+                "TEMP=\nRPM=\nPOWER=\n" +
                 "write_state() {\n" +
                 "  NOW=$(date +%s)\n" +
                 "  {\n" +
@@ -135,34 +147,13 @@ public final class RedMagicBridgeReader {
                 "    echo POWER=$POWER\n" +
                 "    echo UPDATED=$NOW\n" +
                 "  } > $TMP\n" +
-                "  mv $TMP $OUT\n" +
-                "}\n" +
-                "normalize_raw_temp() {\n" +
-                "  N=$1\n" +
-                "  if [ -n \"$N\" ] && [ \"$N\" -ge 128 ] 2>/dev/null && [ \"$N\" -le 255 ] 2>/dev/null; then\n" +
-                "    N=$((N - 256))\n" +
-                "  fi\n" +
-                "  echo $N\n" +
+                "  mv -f $TMP $OUT\n" +
                 "}\n" +
                 "logcat -v brief -T 1 -s neoDevice:V '*:S' | while IFS= read -r line; do\n" +
                 "  case \"$line\" in\n" +
-                "    *\"showTemperature=\"*)\n" +
-                "      V=$(echo \"$line\" | sed -n 's/.*showTemperature=\\(-\\{0,1\\}[0-9][0-9]*\\).*/\\1/p')\n" +
-                "      if [ -n \"$V\" ]; then HAS_DISPLAY_TEMP=1; TEMP=$V; write_state; fi\n" +
-                "      ;;\n" +
-                "    *\"onTemperature values=[\"*)\n" +
-                "      if [ \"$HAS_DISPLAY_TEMP\" -eq 0 ]; then\n" +
-                "        V=$(echo \"$line\" | sed -n 's/.*onTemperature values=\\[\\(-\\{0,1\\}[0-9][0-9]*\\)\\].*/\\1/p')\n" +
-                "        V=$(normalize_raw_temp \"$V\")\n" +
-                "        if [ -n \"$V\" ]; then TEMP=$V; write_state; fi\n" +
-                "      fi\n" +
-                "      ;;\n" +
-                "    *\"onTemp changed [\"*)\n" +
-                "      if [ \"$HAS_DISPLAY_TEMP\" -eq 0 ]; then\n" +
-                "        V=$(echo \"$line\" | sed -n 's/.*onTemp changed \\[\\(-\\{0,1\\}[0-9][0-9]*\\)\\].*/\\1/p')\n" +
-                "        V=$(normalize_raw_temp \"$V\")\n" +
-                "        if [ -n \"$V\" ]; then TEMP=$V; write_state; fi\n" +
-                "      fi\n" +
+                "    *\"Jacket8ProViewModel onTemperature values=[\"*)\n" +
+                "      V=$(echo \"$line\" | sed -n 's/.*Jacket8ProViewModel onTemperature values=\\[\\(-\\{0,1\\}[0-9][0-9]*\\)\\].*/\\1/p')\n" +
+                "      if [ -n \"$V\" ]; then TEMP=$V; write_state; fi\n" +
                 "      ;;\n" +
                 "    *\"onFanSpeed value=\"*)\n" +
                 "      V=$(echo \"$line\" | sed -n 's/.*onFanSpeed value=\\([0-9][0-9]*\\).*/\\1/p')\n" +
