@@ -126,7 +126,7 @@ public final class RedMagicBridgeReader {
                 "OUT=/sdcard/Android/data/com.ppt.k90monitor/files/redmagic_metrics.txt\n" +
                 "TMP=/sdcard/Android/data/com.ppt.k90monitor/files/redmagic_metrics.tmp\n" +
                 "mkdir -p /sdcard/Android/data/com.ppt.k90monitor/files\n" +
-                "TEMP=\nRPM=\nPOWER=\n" +
+                "TEMP=\nRPM=\nPOWER=\nHAS_DISPLAY_TEMP=0\n" +
                 "write_state() {\n" +
                 "  NOW=$(date +%s)\n" +
                 "  {\n" +
@@ -137,19 +137,32 @@ public final class RedMagicBridgeReader {
                 "  } > $TMP\n" +
                 "  mv $TMP $OUT\n" +
                 "}\n" +
+                "normalize_raw_temp() {\n" +
+                "  N=$1\n" +
+                "  if [ -n \"$N\" ] && [ \"$N\" -ge 128 ] 2>/dev/null && [ \"$N\" -le 255 ] 2>/dev/null; then\n" +
+                "    N=$((N - 256))\n" +
+                "  fi\n" +
+                "  echo $N\n" +
+                "}\n" +
                 "logcat -v brief -T 1 -s neoDevice:V '*:S' | while IFS= read -r line; do\n" +
                 "  case \"$line\" in\n" +
-                "    *\"onTemperature values=[\"*)\n" +
-                "      V=$(echo \"$line\" | sed -n 's/.*onTemperature values=\\[\\(-\\{0,1\\}[0-9][0-9]*\\)\\].*/\\1/p')\n" +
-                "      if [ -n \"$V\" ]; then TEMP=$V; write_state; fi\n" +
-                "      ;;\n" +
-                "    *\"onTemp changed [\"*)\n" +
-                "      V=$(echo \"$line\" | sed -n 's/.*onTemp changed \\[\\(-\\{0,1\\}[0-9][0-9]*\\)\\].*/\\1/p')\n" +
-                "      if [ -n \"$V\" ]; then TEMP=$V; write_state; fi\n" +
-                "      ;;\n" +
                 "    *\"showTemperature=\"*)\n" +
                 "      V=$(echo \"$line\" | sed -n 's/.*showTemperature=\\(-\\{0,1\\}[0-9][0-9]*\\).*/\\1/p')\n" +
-                "      if [ -n \"$V\" ]; then TEMP=$V; write_state; fi\n" +
+                "      if [ -n \"$V\" ]; then HAS_DISPLAY_TEMP=1; TEMP=$V; write_state; fi\n" +
+                "      ;;\n" +
+                "    *\"onTemperature values=[\"*)\n" +
+                "      if [ \"$HAS_DISPLAY_TEMP\" -eq 0 ]; then\n" +
+                "        V=$(echo \"$line\" | sed -n 's/.*onTemperature values=\\[\\(-\\{0,1\\}[0-9][0-9]*\\)\\].*/\\1/p')\n" +
+                "        V=$(normalize_raw_temp \"$V\")\n" +
+                "        if [ -n \"$V\" ]; then TEMP=$V; write_state; fi\n" +
+                "      fi\n" +
+                "      ;;\n" +
+                "    *\"onTemp changed [\"*)\n" +
+                "      if [ \"$HAS_DISPLAY_TEMP\" -eq 0 ]; then\n" +
+                "        V=$(echo \"$line\" | sed -n 's/.*onTemp changed \\[\\(-\\{0,1\\}[0-9][0-9]*\\)\\].*/\\1/p')\n" +
+                "        V=$(normalize_raw_temp \"$V\")\n" +
+                "        if [ -n \"$V\" ]; then TEMP=$V; write_state; fi\n" +
+                "      fi\n" +
                 "      ;;\n" +
                 "    *\"onFanSpeed value=\"*)\n" +
                 "      V=$(echo \"$line\" | sed -n 's/.*onFanSpeed value=\\([0-9][0-9]*\\).*/\\1/p')\n" +
