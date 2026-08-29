@@ -19,6 +19,7 @@ import android.widget.Toast;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 public class MainActivity extends Activity {
     private static final int REQ_BLE = 2001;
@@ -49,14 +50,14 @@ public class MainActivity extends Activity {
         scroll.addView(root, new ScrollView.LayoutParams(-1, -2));
 
         TextView title = new TextView(this);
-        title.setText("K90 性能悬浮监控 5.0 Cooler");
+        title.setText("K90 性能悬浮监控 5.1 Cooler");
         title.setTextSize(24);
         title.setTextColor(Color.rgb(20, 20, 20));
         title.setPadding(0, dp(8), 0, dp(8));
         root.addView(title, new LinearLayout.LayoutParams(-1, -2));
 
         TextView desc = new TextView(this);
-        desc.setText("系统监控：CPU 占用 / CPU 频率 / CPU温度 / GPU温度 / 电池温度 / RAM。\n\n红魔散热器 8 Pro：自动扫描并连接 BLE，悬浮窗预留散热开关、风扇转速、背夹温度、功率。协议字段未确认前显示 --，不会伪造数值。");
+        desc.setText("系统：CPU 占用 / CPU频率 / CPU温度 / GPU温度 / 电池温度 / RAM。\n\n红魔散热器 8 Pro：已按实机原厂日志接入背夹温度、风扇转速、功率、智能温控、破坏神模式和散热开启指令。");
         desc.setTextSize(15);
         desc.setTextColor(Color.DKGRAY);
         desc.setLineSpacing(0, 1.2f);
@@ -77,7 +78,7 @@ public class MainActivity extends Activity {
         ble.setOnClickListener(v -> requestBlePermissions());
         root.addView(ble, buttonLp());
 
-        Button connect = makeButton("3. 搜索并连接红魔散热器");
+        Button connect = makeButton("3. 搜索并连接 RM Magcooler 8pro");
         connect.setOnClickListener(v -> {
             if (!CoolerBleManager.get(this).hasPermissions()) {
                 requestBlePermissions();
@@ -94,6 +95,35 @@ public class MainActivity extends Activity {
         start.setOnClickListener(v -> startMonitor());
         root.addView(start, buttonLp());
 
+        TextView controlTitle = new TextView(this);
+        controlTitle.setText("红魔散热器控制");
+        controlTitle.setTextSize(18);
+        controlTitle.setTextColor(Color.BLACK);
+        controlTitle.setPadding(0, dp(22), 0, dp(4));
+        root.addView(controlTitle, new LinearLayout.LayoutParams(-1, -2));
+
+        LinearLayout row1 = horizontal();
+        Button autoOn = makeButton("智能温控 ON");
+        autoOn.setOnClickListener(v -> { CoolerBleManager.get(this).setAutoTemp(true); toast("智能温控 ON"); });
+        row1.addView(autoOn, weightedButton());
+        Button autoOff = makeButton("智能温控 OFF");
+        autoOff.setOnClickListener(v -> { CoolerBleManager.get(this).setAutoTemp(false); toast("智能温控 OFF"); });
+        row1.addView(autoOff, weightedButton());
+        root.addView(row1, new LinearLayout.LayoutParams(-1, -2));
+
+        LinearLayout row2 = horizontal();
+        Button devOn = makeButton("破坏神 ON");
+        devOn.setOnClickListener(v -> { CoolerBleManager.get(this).setDestroyer(true); toast("破坏神 ON"); });
+        row2.addView(devOn, weightedButton());
+        Button devOff = makeButton("破坏神 OFF");
+        devOff.setOnClickListener(v -> { CoolerBleManager.get(this).setDestroyer(false); toast("破坏神 OFF"); });
+        row2.addView(devOff, weightedButton());
+        root.addView(row2, new LinearLayout.LayoutParams(-1, -2));
+
+        Button coolerOn = makeButton("散热开启（原厂已验证指令 02）");
+        coolerOn.setOnClickListener(v -> { CoolerBleManager.get(this).turnCoolerOn(); toast("已发送散热开启指令"); });
+        root.addView(coolerOn, buttonLp());
+
         Button disconnect = makeButton("断开红魔散热器");
         disconnect.setOnClickListener(v -> {
             CoolerBleManager.get(this).disconnect();
@@ -106,7 +136,7 @@ public class MainActivity extends Activity {
         root.addView(stop, buttonLp());
 
         TextView hint = new TextView(this);
-        hint.setText("当前 5.0 先完成系统监控 + BLE 自动连接骨架。红魔散热器的 COOL/RPM/背夹温度/功率需要用实机 Notify/Read 数据确认字节映射后才能显示真实值。\n\nHyperOS 如回收悬浮服务，可在系统应用管理中允许后台运行并关闭省电限制。");
+        hint.setText("智能温控和破坏神模式按互斥逻辑处理：开启其中一个时会先关闭另一个。\n\n当前日志只明确抓到散热开启：1011 = 02；尚未确认原厂散热关闭指令，因此 5.1 不提供猜测的 OFF 按钮。\n\n如果原厂 App 同时连接散热器，可能与本 App 抢占 GATT；测试时建议先彻底退出原厂 App。");
         hint.setTextSize(13);
         hint.setTextColor(Color.GRAY);
         hint.setPadding(0, dp(16), 0, dp(16));
@@ -114,10 +144,16 @@ public class MainActivity extends Activity {
         return scroll;
     }
 
+    private LinearLayout horizontal() {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        return row;
+    }
+
     private Button makeButton(String text) {
         Button b = new Button(this);
         b.setText(text);
-        b.setTextSize(16);
+        b.setTextSize(15);
         b.setAllCaps(false);
         return b;
     }
@@ -125,6 +161,12 @@ public class MainActivity extends Activity {
     private LinearLayout.LayoutParams buttonLp() {
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(54));
         lp.topMargin = dp(10);
+        return lp;
+    }
+
+    private LinearLayout.LayoutParams weightedButton() {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(54), 1f);
+        lp.setMargins(dp(2), dp(5), dp(2), dp(5));
         return lp;
     }
 
@@ -141,21 +183,15 @@ public class MainActivity extends Activity {
     private void requestBlePermissions() {
         List<String> need = new ArrayList<>();
         if (Build.VERSION.SDK_INT >= 31) {
-            if (checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
-                need.add(Manifest.permission.BLUETOOTH_SCAN);
-            }
-            if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
-                need.add(Manifest.permission.BLUETOOTH_CONNECT);
-            }
+            if (checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) need.add(Manifest.permission.BLUETOOTH_SCAN);
+            if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) need.add(Manifest.permission.BLUETOOTH_CONNECT);
         } else if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             need.add(Manifest.permission.ACCESS_FINE_LOCATION);
         }
         if (need.isEmpty()) {
             Toast.makeText(this, "蓝牙权限已开启", Toast.LENGTH_SHORT).show();
             updateStatus();
-        } else {
-            requestPermissions(need.toArray(new String[0]), REQ_BLE);
-        }
+        } else requestPermissions(need.toArray(new String[0]), REQ_BLE);
     }
 
     @Override
@@ -170,12 +206,9 @@ public class MainActivity extends Activity {
             requestOverlayPermission();
             return;
         }
-        if (CoolerBleManager.get(this).hasPermissions()) {
-            CoolerBleManager.get(this).startAutoConnect();
-        }
+        if (CoolerBleManager.get(this).hasPermissions()) CoolerBleManager.get(this).startAutoConnect();
         Intent i = new Intent(this, OverlayMonitorService.class);
-        if (Build.VERSION.SDK_INT >= 26) startForegroundService(i);
-        else startService(i);
+        if (Build.VERSION.SDK_INT >= 26) startForegroundService(i); else startService(i);
         Toast.makeText(this, "性能悬浮监控已启动", Toast.LENGTH_SHORT).show();
     }
 
@@ -183,20 +216,27 @@ public class MainActivity extends Activity {
         if (status == null) return;
         boolean overlay = Settings.canDrawOverlays(this);
         CoolerBleManager.State c = CoolerBleManager.get(this).getState();
+        String telemetry = c.connected
+                ? String.format(Locale.US, "\n背夹温度：%s\n转速：%s\n功率：%s\n智能温控：%s\n破坏神：%s",
+                temp(c.clampTempC), rpm(c.fanRpm), power(c.powerW), onOff(c.autoTemp), onOff(c.destroyer))
+                : "";
         status.setText("悬浮窗权限：" + (overlay ? "已开启 ✓" : "未开启 ✗") +
                 "\n蓝牙权限：" + (CoolerBleManager.get(this).hasPermissions() ? "已开启 ✓" : "未开启 ✗") +
                 "\n红魔散热器：" + c.message +
-                (c.connected ? "\n设备：" + c.deviceName + "  " + c.address : ""));
+                (c.connected ? "\n设备：" + c.deviceName + "  " + c.address : "") + telemetry);
     }
 
+    private String temp(float c) { return Float.isNaN(c) ? "--" : String.format(Locale.US, "%.1f°C", c); }
+    private String rpm(int r) { return r < 0 ? "--" : r + " RPM"; }
+    private String power(float w) { return Float.isNaN(w) ? "--" : String.format(Locale.US, "%.0f W", w); }
+    private String onOff(Boolean v) { return v == null ? "--" : (v ? "ON" : "OFF"); }
+    private void toast(String s) { Toast.makeText(this, s, Toast.LENGTH_SHORT).show(); }
+
     private void requestNotificationPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
-                != PackageManager.PERMISSION_GRANTED) {
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 1001);
         }
     }
 
-    private int dp(int v) {
-        return Math.round(v * getResources().getDisplayMetrics().density);
-    }
+    private int dp(int v) { return Math.round(v * getResources().getDisplayMetrics().density); }
 }
