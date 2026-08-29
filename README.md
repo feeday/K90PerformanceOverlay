@@ -1,6 +1,6 @@
 # K90 性能悬浮监控
 
-![k90.png](https://github.com/feeday/K90PerformanceOverlay/blob/main/k90.png)
+![k90.png](https://github.com/feeday/K90PerformanceOverlay/blob/main/up.png)
 
 
 
