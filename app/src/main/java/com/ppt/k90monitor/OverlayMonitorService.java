@@ -141,13 +141,14 @@ public class OverlayMonitorService extends Service {
         boolean hasLiveRedMagic = r.fileExists && !r.stale && r.fanRpm >= 0;
 
         if (MODE_TEMP.equals(mode)) {
-            StringBuilder out = new StringBuilder();
-            out.append("CPU ").append(temp(s.cpuTempC))
-                    .append("   GPU ").append(temp(s.gpuTempC));
-            if (hasLiveRedMagic && !Float.isNaN(r.clampTempC)) {
-                out.append("\nCLAMP ").append(temp(r.clampTempC));
-            }
-            text.setText(out.toString());
+            String clamp = hasLiveRedMagic && !Float.isNaN(r.clampTempC)
+                    ? temp(r.clampTempC)
+                    : "--";
+            String out = "CPU " + temp(s.cpuTempC)
+                    + "   GPU " + temp(s.gpuTempC)
+                    + "   BAT " + temp(s.batteryTempC)
+                    + "   CLAMP " + clamp;
+            text.setText(out);
             return;
         }
 
