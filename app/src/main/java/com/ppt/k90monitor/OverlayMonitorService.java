@@ -146,14 +146,12 @@ public class OverlayMonitorService extends Service {
             if (title != null) title.setVisibility(View.GONE);
             if (close != null) close.setVisibility(View.GONE);
 
-            String clamp = hasLiveRedMagic && !Float.isNaN(r.clampTempC)
-                    ? compactTemp(r.clampTempC)
-                    : "--";
-            String out = "C:" + compactTemp(s.cpuTempC)
-                    + "  G:" + compactTemp(s.gpuTempC)
-                    + "  B:" + compactTemp(s.batteryTempC)
-                    + "  B:" + clamp;
-            text.setText(out);
+            StringBuilder out = new StringBuilder();
+            appendCompactTemp(out, "C", s.cpuTempC);
+            appendCompactTemp(out, "G", s.gpuTempC);
+            appendCompactTemp(out, "B", s.batteryTempC);
+            if (hasLiveRedMagic) appendCompactTemp(out, "B", r.clampTempC);
+            text.setText(out.toString());
             return;
         }
 
@@ -181,7 +179,12 @@ public class OverlayMonitorService extends Service {
         text.setText(out.toString());
     }
 
-    private String compactTemp(float c) { return Float.isNaN(c) ? "--" : String.format(Locale.US, "%d", Math.round(c)); }
+    private void appendCompactTemp(StringBuilder out, String label, float c) {
+        if (Float.isNaN(c)) return;
+        if (out.length() > 0) out.append("  ");
+        out.append(label).append(':').append(Math.round(c));
+    }
+
     private String pct(float v) { return Float.isNaN(v) ? "N/A" : String.format(Locale.US, "%5.1f%%", v); }
     private String freq(float mhz) {
         if (Float.isNaN(mhz)) return "N/A";
