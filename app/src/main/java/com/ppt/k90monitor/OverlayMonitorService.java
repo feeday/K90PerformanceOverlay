@@ -39,7 +39,9 @@ public class OverlayMonitorService extends Service {
     private WindowManager windowManager;
     private View overlay;
     private WindowManager.LayoutParams lp;
+    private TextView title;
     private TextView text;
+    private TextView close;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private MetricReader reader;
     private RedMagicBridgeReader redMagic;
@@ -92,7 +94,7 @@ public class OverlayMonitorService extends Service {
         bg.setStroke(dp(1), 0x55FFFFFF);
         box.setBackground(bg);
 
-        TextView title = new TextView(this);
+        title = new TextView(this);
         title.setText("K90 MONITOR 5.5");
         title.setTextColor(0xFFB8E1FF);
         title.setTextSize(10);
@@ -108,7 +110,7 @@ public class OverlayMonitorService extends Service {
         text.setLineSpacing(0, 1.05f);
         box.addView(text, new LinearLayout.LayoutParams(-2, -2));
 
-        TextView close = new TextView(this);
+        close = new TextView(this);
         close.setText("长按关闭");
         close.setTextColor(0xFFAAAAAA);
         close.setTextSize(9);
@@ -141,16 +143,22 @@ public class OverlayMonitorService extends Service {
         boolean hasLiveRedMagic = r.fileExists && !r.stale && r.fanRpm >= 0;
 
         if (MODE_TEMP.equals(mode)) {
+            if (title != null) title.setVisibility(View.GONE);
+            if (close != null) close.setVisibility(View.GONE);
+
             String clamp = hasLiveRedMagic && !Float.isNaN(r.clampTempC)
-                    ? temp(r.clampTempC)
+                    ? compactTemp(r.clampTempC)
                     : "--";
-            String out = "CPU " + temp(s.cpuTempC)
-                    + "   GPU " + temp(s.gpuTempC)
-                    + "   BAT " + temp(s.batteryTempC)
-                    + "   CLAMP " + clamp;
+            String out = "C:" + compactTemp(s.cpuTempC)
+                    + "  G:" + compactTemp(s.gpuTempC)
+                    + "  B:" + compactTemp(s.batteryTempC)
+                    + "  B:" + clamp;
             text.setText(out);
             return;
         }
+
+        if (title != null) title.setVisibility(View.VISIBLE);
+        if (close != null) close.setVisibility(View.VISIBLE);
 
         String cpu = String.format(Locale.US, "CPU %s  %s  %s", pct(s.cpuUsage), freq(s.cpuFreqMHz), temp(s.cpuTempC));
         String thermal = String.format(Locale.US, "GPU %s   BAT %s", temp(s.gpuTempC), temp(s.batteryTempC));
@@ -173,6 +181,7 @@ public class OverlayMonitorService extends Service {
         text.setText(out.toString());
     }
 
+    private String compactTemp(float c) { return Float.isNaN(c) ? "--" : String.format(Locale.US, "%d", Math.round(c)); }
     private String pct(float v) { return Float.isNaN(v) ? "N/A" : String.format(Locale.US, "%5.1f%%", v); }
     private String freq(float mhz) {
         if (Float.isNaN(mhz)) return "N/A";
