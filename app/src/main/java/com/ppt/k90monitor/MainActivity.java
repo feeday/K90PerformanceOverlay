@@ -71,7 +71,7 @@ public class MainActivity extends Activity {
         root.addView(title, new LinearLayout.LayoutParams(-1, -2));
 
         TextView desc = new TextView(this);
-        desc.setText("支持两种显示模式：\n\n温度模式：单行极简显示 CPU / GPU / BAT / 背夹温度，无数据项自动隐藏。\n\n全部模式：显示 CPU 占用/频率/温度、GPU温度、电池温度、RAM、实时上传/下载网速；红魔实时数据存在时再追加背夹温度、RPM 和功耗。\n\n内置 CPU / GPU 压力测试，可选 5 / 10 / 15 / 30 / 60 分钟并统计频率。 ");
+        desc.setText("温度模式：单行显示 CPU / GPU / BAT / 背夹温度，无数据项自动隐藏。\n\n全部模式：显示 CPU、GPU 温度、电池温度、RAM、实时网速和红魔扩展数据，并可直接在悬浮窗开关 FTP。\n\n内置 CPU 压力测试，可选 5 / 10 / 15 / 30 / 60 分钟，结束后显示平均 / 最高 / 最低频率及频率曲线。");
         desc.setTextSize(15);
         desc.setTextColor(Color.DKGRAY);
         desc.setLineSpacing(0, 1.2f);
@@ -88,9 +88,7 @@ public class MainActivity extends Activity {
         overlay.setOnClickListener(v -> requestOverlayPermission());
         root.addView(overlay, buttonLp());
 
-        TextView modeTitle = sectionTitle("2. 选择显示模式");
-        root.addView(modeTitle, new LinearLayout.LayoutParams(-1, -2));
-
+        root.addView(sectionTitle("2. 选择显示模式"), new LinearLayout.LayoutParams(-1, -2));
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         Button tempMode = makeButton("温度模式");
@@ -109,23 +107,19 @@ public class MainActivity extends Activity {
         stop.setOnClickListener(v -> stopService(new Intent(this, OverlayMonitorService.class)));
         root.addView(stop, buttonLp());
 
-        TextView stressTitle = sectionTitle("CPU / GPU 压力测试");
-        root.addView(stressTitle, new LinearLayout.LayoutParams(-1, -2));
-
-        Button stress = makeButton("进入压力测试");
+        root.addView(sectionTitle("CPU 压力测试"), new LinearLayout.LayoutParams(-1, -2));
+        Button stress = makeButton("进入 CPU 压力测试");
         stress.setOnClickListener(v -> startActivity(new Intent(this, StressTestActivity.class)));
         root.addView(stress, buttonLp());
 
         TextView stressNote = new TextView(this);
-        stressNote.setText("与悬浮监控合并在同一个 APP 内。支持 CPU、GPU、CPU+GPU 双烤以及 5 / 10 / 15 / 30 / 60 分钟测试。测试结束显示 CPU 平均 / 最高 / 最低频率。");
+        stressNote.setText("支持 5 / 10 / 15 / 30 / 60 分钟 CPU 满载。测试结束显示平均、最高、最低频率，并绘制 CPU 平均频率变化曲线。");
         stressNote.setTextSize(13);
         stressNote.setTextColor(Color.GRAY);
         stressNote.setPadding(0, dp(8), 0, dp(10));
         root.addView(stressNote, new LinearLayout.LayoutParams(-1, -2));
 
-        TextView optional = sectionTitle("红魔散热器（可选）");
-        root.addView(optional, new LinearLayout.LayoutParams(-1, -2));
-
+        root.addView(sectionTitle("红魔散热器（可选）"), new LinearLayout.LayoutParams(-1, -2));
         Button refresh = makeButton("刷新红魔数据状态");
         refresh.setOnClickListener(v -> updateStatus());
         root.addView(refresh, buttonLp());
@@ -134,9 +128,7 @@ public class MainActivity extends Activity {
         copyStart.setOnClickListener(v -> copy(bridge.shellStartCommand(), "桥接启动命令已复制"));
         root.addView(copyStart, buttonLp());
 
-        TextView ftpTitle = sectionTitle("FTP 文件传输");
-        root.addView(ftpTitle, new LinearLayout.LayoutParams(-1, -2));
-
+        root.addView(sectionTitle("FTP 文件传输"), new LinearLayout.LayoutParams(-1, -2));
         ftpStatus = new TextView(this);
         ftpStatus.setTextSize(14);
         ftpStatus.setTextColor(Color.DKGRAY);
@@ -178,15 +170,8 @@ public class MainActivity extends Activity {
         });
         root.addView(copyFtp, buttonLp());
 
-        TextView ftpNote = new TextView(this);
-        ftpNote.setText("FTP 默认仅用于同一局域网。建议不要使用弱密码。授权“全部文件访问”后可共享手机内部存储；未授权时只共享本应用的 ftp 文件夹。");
-        ftpNote.setTextSize(13);
-        ftpNote.setTextColor(Color.GRAY);
-        ftpNote.setPadding(0, dp(10), 0, dp(12));
-        root.addView(ftpNote, new LinearLayout.LayoutParams(-1, -2));
-
         TextView note = new TextView(this);
-        note.setText("说明：没有红魔实时 RPM 时，悬浮窗不会显示任何红魔相关内容。FTP 为手动启动，不会随性能悬浮窗自动开启。");
+        note.setText("全部模式悬浮窗底部可直接点 FTP:开/关；温度模式继续保持纯一行极简显示。长按悬浮窗可关闭监控。");
         note.setTextSize(13);
         note.setTextColor(Color.GRAY);
         note.setPadding(0, dp(16), 0, dp(16));
@@ -264,8 +249,7 @@ public class MainActivity extends Activity {
             return;
         }
         try {
-            Intent i = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:" + getPackageName()));
-            startActivity(i);
+            startActivity(new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:" + getPackageName())));
         } catch (Throwable e) {
             startActivity(new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION));
         }
@@ -297,7 +281,6 @@ public class MainActivity extends Activity {
         if (pass.isEmpty()) pass = "123456";
 
         prefs.edit().putInt(KEY_FTP_PORT, port).putString(KEY_FTP_USER, user).putString(KEY_FTP_PASS, pass).apply();
-
         Intent i = new Intent(this, FtpServerService.class);
         i.putExtra(FtpServerService.EXTRA_PORT, port);
         i.putExtra(FtpServerService.EXTRA_USER, user);
@@ -334,8 +317,8 @@ public class MainActivity extends Activity {
         String mode = prefs.getString(OverlayMonitorService.KEY_MODE, OverlayMonitorService.MODE_FULL);
         status.setText("悬浮窗权限：" + (Settings.canDrawOverlays(this) ? "已开启 ✓" : "未开启 ✗") +
                 "\n显示模式：" + (OverlayMonitorService.MODE_TEMP.equals(mode) ? "温度模式" : "全部模式") +
-                "\n系统监控：可独立使用 ✓" +
-                "\n压力测试：已集成 ✓" +
+                "\nCPU 压力测试：已集成 ✓" +
+                "\nFTP：" + (FtpServerService.isRunning() ? "运行中 ✓" : "未启动") +
                 "\n红魔扩展：" + rmState);
     }
 
