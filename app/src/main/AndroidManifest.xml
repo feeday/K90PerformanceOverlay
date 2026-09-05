@@ -17,7 +17,7 @@
 
         <activity
             android:name=".StressTestActivity"
-            android:label="CPU / GPU 压力测试"
+            android:label="CPU 压力测试"
             android:exported="false" />
 
         <activity
