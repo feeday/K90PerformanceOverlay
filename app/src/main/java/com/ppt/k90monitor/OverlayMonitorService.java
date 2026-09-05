@@ -16,6 +16,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.provider.Settings;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -40,6 +41,7 @@ public class OverlayMonitorService extends Service {
     private View overlay;
     private WindowManager.LayoutParams lp;
     private TextView text;
+    private TextView ftpInfo;
     private LinearLayout footer;
     private TextView ftpToggle;
     private TextView close;
@@ -48,6 +50,12 @@ public class OverlayMonitorService extends Service {
     private RedMagicBridgeReader redMagic;
     private NetworkDisplayReader netDisplay;
     private SharedPreferences prefs;
+
+    private long lastFtpDownBytes;
+    private long lastFtpUpBytes;
+    private long lastFtpSampleMs;
+    private double ftpDownBps;
+    private double ftpUpBps;
 
     private final Runnable tick = new Runnable() {
         @Override public void run() {
@@ -102,6 +110,15 @@ public class OverlayMonitorService extends Service {
         text.setLineSpacing(0, 1.05f);
         box.addView(text, new LinearLayout.LayoutParams(-2, -2));
 
+        ftpInfo = new TextView(this);
+        ftpInfo.setTextColor(0xFFB8E1FF);
+        ftpInfo.setTextSize(10);
+        ftpInfo.setTypeface(Typeface.MONOSPACE, Typeface.NORMAL);
+        ftpInfo.setIncludeFontPadding(false);
+        ftpInfo.setPadding(0, dp(5), 0, 0);
+        ftpInfo.setVisibility(View.GONE);
+        box.addView(ftpInfo, new LinearLayout.LayoutParams(-2, -2));
+
         footer = new LinearLayout(this);
         footer.setOrientation(LinearLayout.HORIZONTAL);
         footer.setGravity(Gravity.CENTER_VERTICAL);
@@ -139,7 +156,7 @@ public class OverlayMonitorService extends Service {
         box.setOnLongClickListener(v -> { stopSelf(); return true; });
         overlay = box;
         windowManager.addView(overlay, lp);
-        updateFtpButton();
+        updateFtpUi();
     }
 
     private void updateMetrics() {
@@ -153,6 +170,7 @@ public class OverlayMonitorService extends Service {
 
         if (MODE_TEMP.equals(mode)) {
             if (footer != null) footer.setVisibility(View.GONE);
+            if (ftpInfo != null) ftpInfo.setVisibility(View.GONE);
             StringBuilder out = new StringBuilder();
             appendCompactTemp(out, "C", s.cpuTempC);
             appendCompactTemp(out, "G", s.gpuTempC);
@@ -163,7 +181,7 @@ public class OverlayMonitorService extends Service {
         }
 
         if (footer != null) footer.setVisibility(View.VISIBLE);
-        updateFtpButton();
+        updateFtpUi();
 
         String cpu = String.format(Locale.US, "CPU %s  %s  %s", pct(s.cpuUsage), freq(s.cpuFreqMHz), temp(s.cpuTempC));
         String thermal = String.format(Locale.US, "GPU %s   BAT %s", temp(s.gpuTempC), temp(s.batteryTempC));
@@ -190,7 +208,7 @@ public class OverlayMonitorService extends Service {
             Intent stop = new Intent(this, FtpServerService.class).setAction(FtpServerService.ACTION_STOP);
             if (Build.VERSION.SDK_INT >= 26) startForegroundService(stop); else startService(stop);
             Toast.makeText(this, "FTP 已停止", Toast.LENGTH_SHORT).show();
-            handler.postDelayed(this::updateFtpButton, 350);
+            handler.postDelayed(this::updateFtpUi, 350);
             return;
         }
 
@@ -207,18 +225,54 @@ public class OverlayMonitorService extends Service {
         start.putExtra(FtpServerService.EXTRA_PASS, pass);
         if (Build.VERSION.SDK_INT >= 26) startForegroundService(start); else startService(start);
         Toast.makeText(this, "FTP 正在启动", Toast.LENGTH_SHORT).show();
-        handler.postDelayed(this::updateFtpButton, 500);
+        resetFtpRateSample();
+        handler.postDelayed(this::updateFtpUi, 500);
     }
 
-    private void updateFtpButton() {
+    private void updateFtpUi() {
         if (ftpToggle == null) return;
         if (FtpServerService.isRunning()) {
             ftpToggle.setText("FTP:开");
             ftpToggle.setTextColor(0xFF74E59A);
+            updateFtpRates();
+            if (ftpInfo != null) {
+                int port = FtpServerService.getRunningPort();
+                String addr = "ftp://" + FtpServerService.getLanIp() + ":" + port;
+                ftpInfo.setText(addr + "\n连接 " + FtpServerService.getActiveConnections()
+                        + "  ↓" + speed(ftpDownBps) + "  ↑" + speed(ftpUpBps));
+                ftpInfo.setVisibility(View.VISIBLE);
+            }
         } else {
             ftpToggle.setText("FTP:关");
             ftpToggle.setTextColor(0xFF8DD8FF);
+            if (ftpInfo != null) ftpInfo.setVisibility(View.GONE);
+            resetFtpRateSample();
         }
+    }
+
+    private void updateFtpRates() {
+        long now = SystemClock.elapsedRealtime();
+        long down = FtpServerService.getDownloadedBytes();
+        long up = FtpServerService.getUploadedBytes();
+        if (lastFtpSampleMs > 0 && now > lastFtpSampleMs) {
+            double seconds = (now - lastFtpSampleMs) / 1000.0;
+            ftpDownBps = Math.max(0d, (down - lastFtpDownBytes) / seconds);
+            ftpUpBps = Math.max(0d, (up - lastFtpUpBytes) / seconds);
+        } else {
+            ftpDownBps = 0d;
+            ftpUpBps = 0d;
+        }
+        lastFtpDownBytes = down;
+        lastFtpUpBytes = up;
+        lastFtpSampleMs = now;
+    }
+
+    private void resetFtpRateSample() {
+        lastFtpDownBytes = FtpServerService.getDownloadedBytes();
+        lastFtpUpBytes = FtpServerService.getUploadedBytes();
+        lastFtpSampleMs = 0L;
+        ftpDownBps = 0d;
+        ftpUpBps = 0d;
     }
 
     private void appendCompactTemp(StringBuilder out, String label, float c) {
