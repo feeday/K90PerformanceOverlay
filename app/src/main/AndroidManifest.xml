@@ -12,7 +12,7 @@
     <application
         android:allowBackup="false"
         android:label="K90 性能悬浮监控"
-        android:theme="@style/AppTheme">">
+        android:theme="@style/AppTheme">
 
         <activity
             android:name=".StressTestActivity"
