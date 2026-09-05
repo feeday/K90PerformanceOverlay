@@ -71,7 +71,7 @@ public class MainActivity extends Activity {
         root.addView(title, new LinearLayout.LayoutParams(-1, -2));
 
         TextView desc = new TextView(this);
-        desc.setText("温度模式：单行显示 CPU / GPU / BAT / 背夹温度，无数据项自动隐藏。\n\n全部模式：显示 CPU、GPU 温度、电池温度、RAM、实时网速和红魔扩展数据，并可直接在悬浮窗开关 FTP。\n\n内置 CPU 压力测试，可选 5 / 10 / 15 / 30 / 60 分钟，结束后显示平均 / 最高 / 最低频率及频率曲线。");
+        desc.setText("温度模式：单行显示 CPU / GPU / BAT / 背夹温度，无数据项自动隐藏。\n\n全部模式：显示 CPU、GPU 温度、电池温度、RAM、实时网速和红魔扩展数据，并可直接在悬浮窗开关 FTP。\n\n内置 CPU 压力测试，可选 3 / 5 / 15 / 30 / 60 分钟，结束后显示平均 / 最高 / 最低频率、平均占用和最高温度。");
         desc.setTextSize(15);
         desc.setTextColor(Color.DKGRAY);
         desc.setLineSpacing(0, 1.2f);
@@ -113,7 +113,7 @@ public class MainActivity extends Activity {
         root.addView(stress, buttonLp());
 
         TextView stressNote = new TextView(this);
-        stressNote.setText("支持 5 / 10 / 15 / 30 / 60 分钟 CPU 满载。测试结束显示平均、最高、最低频率，并绘制 CPU 平均频率变化曲线。");
+        stressNote.setText("支持 3 / 5 / 15 / 30 / 60 分钟 CPU 满载。测试结束显示平均、最高、最低频率，以及 CPU 平均占用和最高温度。");
         stressNote.setTextSize(13);
         stressNote.setTextColor(Color.GRAY);
         stressNote.setPadding(0, dp(8), 0, dp(10));
