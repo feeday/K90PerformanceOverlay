@@ -17,7 +17,13 @@ public class K90Application extends Application {
         super.onCreate();
         registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks() {
             @Override public void onActivityCreated(Activity activity, Bundle savedInstanceState) {
-                activity.getWindow().getDecorView().post(() -> applySafeArea(activity));
+                activity.getWindow().getDecorView().post(() -> {
+                    try {
+                        applySafeArea(activity);
+                    } catch (Throwable ignored) {
+                        // Safe-area handling must never crash the Activity.
+                    }
+                });
             }
             @Override public void onActivityStarted(Activity activity) { }
             @Override public void onActivityResumed(Activity activity) { }
@@ -44,13 +50,6 @@ public class K90Application extends Application {
         if (contentGroup.getChildCount() == 0) return;
 
         View root = contentGroup.getChildAt(0);
-        Object marker = root.getTag(android.R.id.custom);
-        if ("k90_safe_area".equals(marker)) {
-            root.requestApplyInsets();
-            return;
-        }
-        root.setTag(android.R.id.custom, "k90_safe_area");
-
         final int baseLeft = root.getPaddingLeft();
         final int baseTop = root.getPaddingTop();
         final int baseRight = root.getPaddingRight();
