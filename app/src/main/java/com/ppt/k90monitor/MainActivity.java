@@ -71,7 +71,7 @@ public class MainActivity extends Activity {
         root.addView(title, new LinearLayout.LayoutParams(-1, -2));
 
         TextView desc = new TextView(this);
-        desc.setText("支持两种显示模式：\n\n温度模式：单行极简显示 CPU / GPU / BAT / 背夹温度，无数据项自动隐藏。\n\n全部模式：显示 CPU 占用/频率/温度、GPU温度、电池温度、RAM、实时上传/下载网速；红魔实时数据存在时再追加背夹温度、RPM 和功耗。");
+        desc.setText("支持两种显示模式：\n\n温度模式：单行极简显示 CPU / GPU / BAT / 背夹温度，无数据项自动隐藏。\n\n全部模式：显示 CPU 占用/频率/温度、GPU温度、电池温度、RAM、实时上传/下载网速；红魔实时数据存在时再追加背夹温度、RPM 和功耗。\n\n内置 CPU / GPU 压力测试，可选 5 / 10 / 15 / 30 / 60 分钟并统计频率。 ");
         desc.setTextSize(15);
         desc.setTextColor(Color.DKGRAY);
         desc.setLineSpacing(0, 1.2f);
@@ -108,6 +108,20 @@ public class MainActivity extends Activity {
         Button stop = makeButton("停止悬浮监控");
         stop.setOnClickListener(v -> stopService(new Intent(this, OverlayMonitorService.class)));
         root.addView(stop, buttonLp());
+
+        TextView stressTitle = sectionTitle("CPU / GPU 压力测试");
+        root.addView(stressTitle, new LinearLayout.LayoutParams(-1, -2));
+
+        Button stress = makeButton("进入压力测试");
+        stress.setOnClickListener(v -> startActivity(new Intent(this, StressTestActivity.class)));
+        root.addView(stress, buttonLp());
+
+        TextView stressNote = new TextView(this);
+        stressNote.setText("与悬浮监控合并在同一个 APP 内。支持 CPU、GPU、CPU+GPU 双烤以及 5 / 10 / 15 / 30 / 60 分钟测试。测试结束显示 CPU 平均 / 最高 / 最低频率。");
+        stressNote.setTextSize(13);
+        stressNote.setTextColor(Color.GRAY);
+        stressNote.setPadding(0, dp(8), 0, dp(10));
+        root.addView(stressNote, new LinearLayout.LayoutParams(-1, -2));
 
         TextView optional = sectionTitle("红魔散热器（可选）");
         root.addView(optional, new LinearLayout.LayoutParams(-1, -2));
@@ -321,6 +335,7 @@ public class MainActivity extends Activity {
         status.setText("悬浮窗权限：" + (Settings.canDrawOverlays(this) ? "已开启 ✓" : "未开启 ✗") +
                 "\n显示模式：" + (OverlayMonitorService.MODE_TEMP.equals(mode) ? "温度模式" : "全部模式") +
                 "\n系统监控：可独立使用 ✓" +
+                "\n压力测试：已集成 ✓" +
                 "\n红魔扩展：" + rmState);
     }
 
