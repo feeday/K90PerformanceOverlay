@@ -139,7 +139,6 @@ public class OverlayMonitorService extends Service {
         close.setPadding(dp(8), dp(3), 0, dp(3));
         close.setOnLongClickListener(v -> { stopSelf(); return true; });
         footer.addView(close, new LinearLayout.LayoutParams(-2, -2));
-
         box.addView(footer, new LinearLayout.LayoutParams(-2, -2));
 
         lp = new WindowManager.LayoutParams(
@@ -164,7 +163,6 @@ public class OverlayMonitorService extends Service {
         MetricReader.Snapshot s = reader.read();
         RedMagicBridgeReader.State r = redMagic.read();
         NetworkDisplayReader.State n = netDisplay.read();
-
         String mode = prefs.getString(KEY_MODE, MODE_FULL);
         boolean hasLiveRedMagic = r.fileExists && !r.stale && r.fanRpm >= 0;
 
@@ -187,13 +185,8 @@ public class OverlayMonitorService extends Service {
         String thermal = String.format(Locale.US, "GPU %s   BAT %s", temp(s.gpuTempC), temp(s.batteryTempC));
         String mem = String.format(Locale.US, "RAM %s / %s  %s", gb(s.memUsedBytes), gb(s.memTotalBytes), pct(s.memUsage));
         String net = "NET ↓" + speed(n.downBytesPerSec) + "  ↑" + speed(n.upBytesPerSec);
-
         StringBuilder out = new StringBuilder();
-        out.append(cpu).append('\n')
-                .append(thermal).append('\n')
-                .append(mem).append('\n')
-                .append(net);
-
+        out.append(cpu).append('\n').append(thermal).append('\n').append(mem).append('\n').append(net);
         if (hasLiveRedMagic) {
             out.append("\n\nREDMAGIC")
                     .append("\nFAN ").append(rpm(r.fanRpm))
@@ -205,9 +198,12 @@ public class OverlayMonitorService extends Service {
 
     private void toggleFtp() {
         if (FtpServerService.isRunning()) {
-            Intent stop = new Intent(this, FtpServerService.class).setAction(FtpServerService.ACTION_STOP);
-            if (Build.VERSION.SDK_INT >= 26) startForegroundService(stop); else startService(stop);
-            Toast.makeText(this, "FTP 已停止", Toast.LENGTH_SHORT).show();
+            try {
+                stopService(new Intent(this, FtpServerService.class));
+                Toast.makeText(this, "FTP 已停止", Toast.LENGTH_SHORT).show();
+            } catch (Throwable e) {
+                Toast.makeText(this, "停止 FTP 失败", Toast.LENGTH_LONG).show();
+            }
             handler.postDelayed(this::updateFtpUi, 350);
             return;
         }
@@ -223,10 +219,15 @@ public class OverlayMonitorService extends Service {
         start.putExtra(FtpServerService.EXTRA_PORT, port);
         start.putExtra(FtpServerService.EXTRA_USER, user);
         start.putExtra(FtpServerService.EXTRA_PASS, pass);
-        if (Build.VERSION.SDK_INT >= 26) startForegroundService(start); else startService(start);
-        Toast.makeText(this, "FTP 正在启动", Toast.LENGTH_SHORT).show();
-        resetFtpRateSample();
-        handler.postDelayed(this::updateFtpUi, 500);
+        try {
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(start); else startService(start);
+            Toast.makeText(this, "FTP 正在启动", Toast.LENGTH_SHORT).show();
+            resetFtpRateSample();
+            handler.postDelayed(this::updateFtpUi, 500);
+        } catch (Throwable e) {
+            Toast.makeText(this, "系统限制后台启动 FTP，请先打开主应用启动一次", Toast.LENGTH_LONG).show();
+            updateFtpUi();
+        }
     }
 
     private void updateFtpUi() {
@@ -282,14 +283,10 @@ public class OverlayMonitorService extends Service {
     }
 
     private String pct(float v) { return Float.isNaN(v) ? "N/A" : String.format(Locale.US, "%5.1f%%", v); }
-    private String freq(float mhz) {
-        if (Float.isNaN(mhz)) return "N/A";
-        return mhz >= 1000f ? String.format(Locale.US, "%4.2fGHz", mhz / 1000f) : String.format(Locale.US, "%4.0fMHz", mhz);
-    }
+    private String freq(float mhz) { if (Float.isNaN(mhz)) return "N/A"; return mhz >= 1000f ? String.format(Locale.US, "%4.2fGHz", mhz / 1000f) : String.format(Locale.US, "%4.0fMHz", mhz); }
     private String temp(float c) { return Float.isNaN(c) ? "--" : String.format(Locale.US, "%4.1f°C", c); }
     private String gb(long bytes) { return bytes <= 0 ? "N/A" : String.format(Locale.US, "%.1fG", bytes / 1073741824.0); }
     private String rpm(int v) { return v < 0 ? "---- RPM" : String.format(Locale.US, "%4d RPM", v); }
-
     private String speed(double bytesPerSec) {
         if (Double.isNaN(bytesPerSec)) return "--";
         if (bytesPerSec >= 1024 * 1024) return String.format(Locale.US, "%.1fMB/s", bytesPerSec / (1024.0 * 1024.0));
