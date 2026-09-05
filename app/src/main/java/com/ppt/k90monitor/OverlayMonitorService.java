@@ -39,8 +39,9 @@ public class OverlayMonitorService extends Service {
     private WindowManager windowManager;
     private View overlay;
     private WindowManager.LayoutParams lp;
-    private TextView title;
     private TextView text;
+    private LinearLayout footer;
+    private TextView ftpToggle;
     private TextView close;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private MetricReader reader;
@@ -55,8 +56,7 @@ public class OverlayMonitorService extends Service {
         }
     };
 
-    @Override
-    public void onCreate() {
+    @Override public void onCreate() {
         super.onCreate();
         reader = new MetricReader(this);
         redMagic = new RedMagicBridgeReader(this);
@@ -73,8 +73,7 @@ public class OverlayMonitorService extends Service {
         handler.post(tick);
     }
 
-    @Override
-    public int onStartCommand(Intent intent, int flags, int startId) {
+    @Override public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null && "STOP".equals(intent.getAction())) {
             stopSelf();
             return START_NOT_STICKY;
@@ -94,13 +93,6 @@ public class OverlayMonitorService extends Service {
         bg.setStroke(dp(1), 0x55FFFFFF);
         box.setBackground(bg);
 
-        title = new TextView(this);
-        title.setText("K90 MONITOR 5.5");
-        title.setTextColor(0xFFB8E1FF);
-        title.setTextSize(10);
-        title.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
-        box.addView(title, new LinearLayout.LayoutParams(-2, -2));
-
         text = new TextView(this);
         text.setText("正在读取…");
         text.setTextColor(Color.WHITE);
@@ -110,12 +102,28 @@ public class OverlayMonitorService extends Service {
         text.setLineSpacing(0, 1.05f);
         box.addView(text, new LinearLayout.LayoutParams(-2, -2));
 
+        footer = new LinearLayout(this);
+        footer.setOrientation(LinearLayout.HORIZONTAL);
+        footer.setGravity(Gravity.CENTER_VERTICAL);
+        footer.setPadding(0, dp(4), 0, 0);
+
+        ftpToggle = new TextView(this);
+        ftpToggle.setTextColor(0xFF8DD8FF);
+        ftpToggle.setTextSize(10);
+        ftpToggle.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+        ftpToggle.setPadding(0, dp(3), dp(14), dp(3));
+        ftpToggle.setOnClickListener(v -> toggleFtp());
+        footer.addView(ftpToggle, new LinearLayout.LayoutParams(-2, -2));
+
         close = new TextView(this);
         close.setText("长按关闭");
         close.setTextColor(0xFFAAAAAA);
         close.setTextSize(9);
-        close.setPadding(0, dp(3), 0, 0);
-        box.addView(close, new LinearLayout.LayoutParams(-2, -2));
+        close.setPadding(dp(8), dp(3), 0, dp(3));
+        close.setOnLongClickListener(v -> { stopSelf(); return true; });
+        footer.addView(close, new LinearLayout.LayoutParams(-2, -2));
+
+        box.addView(footer, new LinearLayout.LayoutParams(-2, -2));
 
         lp = new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT,
@@ -131,6 +139,7 @@ public class OverlayMonitorService extends Service {
         box.setOnLongClickListener(v -> { stopSelf(); return true; });
         overlay = box;
         windowManager.addView(overlay, lp);
+        updateFtpButton();
     }
 
     private void updateMetrics() {
@@ -143,9 +152,7 @@ public class OverlayMonitorService extends Service {
         boolean hasLiveRedMagic = r.fileExists && !r.stale && r.fanRpm >= 0;
 
         if (MODE_TEMP.equals(mode)) {
-            if (title != null) title.setVisibility(View.GONE);
-            if (close != null) close.setVisibility(View.GONE);
-
+            if (footer != null) footer.setVisibility(View.GONE);
             StringBuilder out = new StringBuilder();
             appendCompactTemp(out, "C", s.cpuTempC);
             appendCompactTemp(out, "G", s.gpuTempC);
@@ -155,8 +162,8 @@ public class OverlayMonitorService extends Service {
             return;
         }
 
-        if (title != null) title.setVisibility(View.VISIBLE);
-        if (close != null) close.setVisibility(View.VISIBLE);
+        if (footer != null) footer.setVisibility(View.VISIBLE);
+        updateFtpButton();
 
         String cpu = String.format(Locale.US, "CPU %s  %s  %s", pct(s.cpuUsage), freq(s.cpuFreqMHz), temp(s.cpuTempC));
         String thermal = String.format(Locale.US, "GPU %s   BAT %s", temp(s.gpuTempC), temp(s.batteryTempC));
@@ -175,8 +182,43 @@ public class OverlayMonitorService extends Service {
                     .append("   CLAMP ").append(temp(r.clampTempC))
                     .append("\nPWR ").append(RedMagicBridgeReader.formatPower(r.powerW));
         }
-
         text.setText(out.toString());
+    }
+
+    private void toggleFtp() {
+        if (FtpServerService.isRunning()) {
+            Intent stop = new Intent(this, FtpServerService.class).setAction(FtpServerService.ACTION_STOP);
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(stop); else startService(stop);
+            Toast.makeText(this, "FTP 已停止", Toast.LENGTH_SHORT).show();
+            handler.postDelayed(this::updateFtpButton, 350);
+            return;
+        }
+
+        int port = prefs.getInt("ftp_port", 2121);
+        if (port < 1024 || port > 65535) port = 2121;
+        String user = prefs.getString("ftp_user", "k90");
+        String pass = prefs.getString("ftp_pass", "123456");
+        if (user == null || user.trim().isEmpty()) user = "k90";
+        if (pass == null || pass.isEmpty()) pass = "123456";
+
+        Intent start = new Intent(this, FtpServerService.class);
+        start.putExtra(FtpServerService.EXTRA_PORT, port);
+        start.putExtra(FtpServerService.EXTRA_USER, user);
+        start.putExtra(FtpServerService.EXTRA_PASS, pass);
+        if (Build.VERSION.SDK_INT >= 26) startForegroundService(start); else startService(start);
+        Toast.makeText(this, "FTP 正在启动", Toast.LENGTH_SHORT).show();
+        handler.postDelayed(this::updateFtpButton, 500);
+    }
+
+    private void updateFtpButton() {
+        if (ftpToggle == null) return;
+        if (FtpServerService.isRunning()) {
+            ftpToggle.setText("FTP:开");
+            ftpToggle.setTextColor(0xFF74E59A);
+        } else {
+            ftpToggle.setText("FTP:关");
+            ftpToggle.setTextColor(0xFF8DD8FF);
+        }
     }
 
     private void appendCompactTemp(StringBuilder out, String label, float c) {
@@ -217,8 +259,8 @@ public class OverlayMonitorService extends Service {
         stop.setAction("STOP");
         PendingIntent stopPi = PendingIntent.getService(this, 2, stop, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         Notification.Builder b = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(this, CHANNEL_ID) : new Notification.Builder(this);
-        return b.setContentTitle("K90 性能悬浮监控 5.5")
-                .setContentText("支持温度模式 / 全部模式")
+        return b.setContentTitle("K90 性能悬浮监控")
+                .setContentText("支持温度模式 / 全部模式 / 悬浮 FTP 开关")
                 .setSmallIcon(android.R.drawable.stat_notify_sync)
                 .setContentIntent(content)
                 .setOngoing(true)
