@@ -1,9 +1,10 @@
 package com.ppt.k90monitor;
 
 import android.app.Activity;
+import android.graphics.Canvas;
 import android.graphics.Color;
-import android.opengl.GLES20;
-import android.opengl.GLSurfaceView;
+import android.graphics.Paint;
+import android.graphics.Path;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -12,7 +13,6 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.Button;
-import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -21,21 +21,12 @@ import android.widget.Toast;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
-import java.nio.FloatBuffer;
+import java.util.ArrayList;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-import javax.microedition.khronos.egl.EGLConfig;
-import javax.microedition.khronos.opengles.GL10;
-
 public class StressTestActivity extends Activity {
-    private static final String MODE_CPU = "CPU";
-    private static final String MODE_GPU = "GPU";
-    private static final String MODE_BOTH = "CPU+GPU";
-
     private static final float CPU_TEMP_LIMIT_C = 105f;
     private static final float BATTERY_TEMP_LIMIT_C = 55f;
 
@@ -43,25 +34,22 @@ public class StressTestActivity extends Activity {
     private final Runnable sampleTask = this::sampleAndRefresh;
 
     private MetricReader metricReader;
-    private GpuStressView gpuView;
     private TextView durationLabel;
     private TextView statusText;
     private TextView resultText;
+    private FrequencyChartView chartView;
 
     private int selectedMinutes = 10;
     private volatile boolean running;
-    private String runningMode = MODE_BOTH;
     private long startedAtMs;
     private long targetEndMs;
     private ExecutorService cpuPool;
 
     private final FrequencyStats cpuFreqStats = new FrequencyStats();
-    private final FrequencyStats gpuFreqStats = new FrequencyStats();
     private final ValueStats cpuUsageStats = new ValueStats();
-    private final ValueStats gpuUsageStats = new ValueStats();
     private final ValueStats cpuTempStats = new ValueStats();
-    private final ValueStats gpuTempStats = new ValueStats();
     private final ValueStats batteryTempStats = new ValueStats();
+    private final ArrayList<Float> frequencyHistoryMHz = new ArrayList<>();
 
     private static volatile long cpuBlackHole;
 
@@ -73,14 +61,8 @@ public class StressTestActivity extends Activity {
         updateIdleStatus();
     }
 
-    @Override protected void onResume() {
-        super.onResume();
-        if (gpuView != null) gpuView.onResume();
-    }
-
     @Override protected void onPause() {
         if (running) finishTest("页面离开，测试已停止");
-        if (gpuView != null) gpuView.onPause();
         super.onPause();
     }
 
@@ -91,16 +73,9 @@ public class StressTestActivity extends Activity {
     }
 
     private View buildUi() {
-        FrameLayout frame = new FrameLayout(this);
-        frame.setBackgroundColor(Color.rgb(18, 18, 18));
-
-        gpuView = new GpuStressView(this);
-        gpuView.setVisibility(View.GONE);
-        frame.addView(gpuView, new FrameLayout.LayoutParams(-1, -1));
-
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
-        scroll.setBackgroundColor(Color.argb(238, 255, 255, 255));
+        scroll.setBackgroundColor(Color.WHITE);
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -109,14 +84,14 @@ public class StressTestActivity extends Activity {
         scroll.addView(root, new ScrollView.LayoutParams(-1, -2));
 
         TextView title = new TextView(this);
-        title.setText("CPU / GPU 压力测试");
+        title.setText("CPU 压力测试");
         title.setTextSize(24);
         title.setTextColor(Color.rgb(20, 20, 20));
         title.setPadding(0, dp(4), 0, dp(8));
         root.addView(title, new LinearLayout.LayoutParams(-1, -2));
 
         TextView desc = new TextView(this);
-        desc.setText("CPU：多线程计算压满可用核心。\nGPU：OpenGL ES 2.0 持续高负载片元计算。\n测试期间每秒采样频率，结束后统计 CPU 平均 / 最高 / 最低频率。GPU 频率可读取时也会同步统计。\n\n温度保护：CPU ≥ 105°C 或电池 ≥ 55°C 时自动停止。");
+        desc.setText("多线程持续压满可用 CPU 核心，每秒读取在线核心实时频率。\n测试结束显示平均 / 最高 / 最低频率，并生成 CPU 频率变化曲线。\n\n温度保护：CPU ≥ 105°C 或电池 ≥ 55°C 时自动停止。");
         desc.setTextSize(14);
         desc.setTextColor(Color.DKGRAY);
         desc.setLineSpacing(0, 1.15f);
@@ -150,19 +125,11 @@ public class StressTestActivity extends Activity {
         durationLabel.setPadding(dp(4), dp(7), dp(4), dp(8));
         root.addView(durationLabel, new LinearLayout.LayoutParams(-1, -2));
 
-        root.addView(sectionTitle("2. 开始压力测试"), new LinearLayout.LayoutParams(-1, -2));
+        root.addView(sectionTitle("2. CPU 满载"), new LinearLayout.LayoutParams(-1, -2));
 
-        Button cpu = makeButton("开始 CPU 压力测试", 16);
-        cpu.setOnClickListener(v -> startTest(MODE_CPU));
-        root.addView(cpu, buttonLp());
-
-        Button gpu = makeButton("开始 GPU 压力测试", 16);
-        gpu.setOnClickListener(v -> startTest(MODE_GPU));
-        root.addView(gpu, buttonLp());
-
-        Button both = makeButton("开始 CPU + GPU 双烤", 16);
-        both.setOnClickListener(v -> startTest(MODE_BOTH));
-        root.addView(both, buttonLp());
+        Button start = makeButton("开始 CPU 压力测试", 16);
+        start.setOnClickListener(v -> startTest());
+        root.addView(start, buttonLp());
 
         Button stop = makeButton("停止测试", 16);
         stop.setOnClickListener(v -> {
@@ -180,7 +147,14 @@ public class StressTestActivity extends Activity {
         statusText.setBackgroundColor(Color.rgb(242, 242, 242));
         root.addView(statusText, new LinearLayout.LayoutParams(-1, -2));
 
-        root.addView(sectionTitle("4. 测试结果"), new LinearLayout.LayoutParams(-1, -2));
+        root.addView(sectionTitle("4. CPU 频率曲线"), new LinearLayout.LayoutParams(-1, -2));
+
+        chartView = new FrequencyChartView(this);
+        LinearLayout.LayoutParams chartLp = new LinearLayout.LayoutParams(-1, dp(240));
+        chartLp.topMargin = dp(6);
+        root.addView(chartView, chartLp);
+
+        root.addView(sectionTitle("5. 测试结果"), new LinearLayout.LayoutParams(-1, -2));
 
         resultText = new TextView(this);
         resultText.setText("完成一次测试后，这里会显示统计结果。\n重点：CPU 平均频率 / 最高频率 / 最低频率。");
@@ -191,14 +165,13 @@ public class StressTestActivity extends Activity {
         root.addView(resultText, new LinearLayout.LayoutParams(-1, -2));
 
         TextView note = new TextView(this);
-        note.setText("说明：压力测试会明显增加功耗和发热。建议测试时保持应用在前台，并根据需要连接散热背夹。CPU 频率统计优先读取每个在线核心的实时频率；系统限制读取时会回退到现有监控可读值。");
+        note.setText("说明：曲线按约 1 秒一次采样，纵轴为全体可读在线核心的平均频率。系统限制读取时会回退到现有监控可读频率。压力测试会明显增加功耗和发热。");
         note.setTextSize(13);
         note.setTextColor(Color.GRAY);
         note.setPadding(0, dp(18), 0, dp(10));
         root.addView(note, new LinearLayout.LayoutParams(-1, -2));
 
-        frame.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
-        return frame;
+        return scroll;
     }
 
     private TextView sectionTitle(String text) {
@@ -242,40 +215,23 @@ public class StressTestActivity extends Activity {
         }
     }
 
-    private void startTest(String mode) {
+    private void startTest() {
         if (running) {
-            Toast.makeText(this, "已有压力测试正在运行", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "CPU 压力测试正在运行", Toast.LENGTH_SHORT).show();
             return;
         }
 
         resetStats();
-        runningMode = mode;
         running = true;
         startedAtMs = SystemClock.elapsedRealtime();
         targetEndMs = startedAtMs + selectedMinutes * 60_000L;
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        startCpuWorkers();
 
-        if (needsCpu(mode)) startCpuWorkers();
-        if (needsGpu(mode)) {
-            gpuView.setVisibility(View.VISIBLE);
-            gpuView.setStressEnabled(true);
-        } else {
-            gpuView.setStressEnabled(false);
-            gpuView.setVisibility(View.GONE);
-        }
-
-        resultText.setText("测试进行中……结束后自动生成统计结果。");
-        Toast.makeText(this, mode + " 压力测试已开始", Toast.LENGTH_SHORT).show();
+        resultText.setText("测试进行中……结束后自动生成统计结果和频率曲线。");
+        Toast.makeText(this, "CPU 压力测试已开始", Toast.LENGTH_SHORT).show();
         handler.removeCallbacks(sampleTask);
         handler.postDelayed(sampleTask, 700);
-    }
-
-    private boolean needsCpu(String mode) {
-        return MODE_CPU.equals(mode) || MODE_BOTH.equals(mode);
-    }
-
-    private boolean needsGpu(String mode) {
-        return MODE_GPU.equals(mode) || MODE_BOTH.equals(mode);
     }
 
     private void startCpuWorkers() {
@@ -291,7 +247,7 @@ public class StressTestActivity extends Activity {
         try { Thread.currentThread().setPriority(Thread.MAX_PRIORITY); } catch (Throwable ignored) { }
         long x = 0x9E3779B97F4A7C15L ^ (worker * 0xBF58476D1CE4E5B9L);
         double d = 1.000001 + worker * 0.00001;
-        while (running && needsCpu(runningMode) && !Thread.currentThread().isInterrupted()) {
+        while (running && !Thread.currentThread().isInterrupted()) {
             for (int i = 0; i < 60_000; i++) {
                 x ^= x << 13;
                 x ^= x >>> 7;
@@ -318,28 +274,31 @@ public class StressTestActivity extends Activity {
         if (!cpuSample.valid() && valid(snapshot.cpuFreqMHz)) {
             cpuSample = new FrequencySample(snapshot.cpuFreqMHz, snapshot.cpuFreqMHz, snapshot.cpuFreqMHz, 1);
         }
-        if (cpuSample.valid()) cpuFreqStats.add(cpuSample);
-        if (valid(snapshot.gpuFreqMHz)) gpuFreqStats.add(snapshot.gpuFreqMHz);
+
+        if (cpuSample.valid()) {
+            cpuFreqStats.add(cpuSample);
+            frequencyHistoryMHz.add(cpuSample.averageMHz);
+        } else {
+            frequencyHistoryMHz.add(Float.NaN);
+        }
         if (valid(snapshot.cpuUsage)) cpuUsageStats.add(snapshot.cpuUsage);
-        if (valid(snapshot.gpuUsage)) gpuUsageStats.add(snapshot.gpuUsage);
         if (valid(snapshot.cpuTempC)) cpuTempStats.add(snapshot.cpuTempC);
-        if (valid(snapshot.gpuTempC)) gpuTempStats.add(snapshot.gpuTempC);
         if (valid(snapshot.batteryTempC)) batteryTempStats.add(snapshot.batteryTempC);
 
         long now = SystemClock.elapsedRealtime();
+        long elapsedMs = Math.max(0, now - startedAtMs);
         long remainingMs = Math.max(0, targetEndMs - now);
+        chartView.setData(frequencyHistoryMHz, elapsedMs / 1000f);
+
         StringBuilder sb = new StringBuilder();
-        sb.append("状态：运行中  [").append(runningMode).append("]\n");
+        sb.append("状态：运行中\n");
         sb.append("剩余：").append(formatDuration(remainingMs)).append(" / 设定 ")
                 .append(selectedMinutes == 60 ? "1小时" : selectedMinutes + "分钟").append("\n");
-        sb.append("CPU：").append(formatPercent(snapshot.cpuUsage))
-                .append("  当前平均 ").append(cpuSample.valid() ? formatMHz(cpuSample.averageMHz) : "不可读")
-                .append("  温度 ").append(formatTemp(snapshot.cpuTempC)).append("\n");
-        sb.append("GPU：").append(formatPercent(snapshot.gpuUsage))
-                .append("  频率 ").append(valid(snapshot.gpuFreqMHz) ? formatMHz(snapshot.gpuFreqMHz) : "不可读")
-                .append("  温度 ").append(formatTemp(snapshot.gpuTempC)).append("\n");
-        sb.append("BAT：").append(formatTemp(snapshot.batteryTempC))
-                .append("  CPU频率样本：").append(cpuFreqStats.count);
+        sb.append("CPU 占用：").append(formatPercent(snapshot.cpuUsage)).append("\n");
+        sb.append("当前平均频率：").append(cpuSample.valid() ? formatMHz(cpuSample.averageMHz) : "不可读").append("\n");
+        sb.append("CPU 温度：").append(formatTemp(snapshot.cpuTempC))
+                .append("   BAT：").append(formatTemp(snapshot.batteryTempC)).append("\n");
+        sb.append("频率样本：").append(cpuFreqStats.count).append(" 次");
         statusText.setText(sb.toString());
 
         boolean cpuTooHot = valid(snapshot.cpuTempC) && snapshot.cpuTempC >= CPU_TEMP_LIMIT_C;
@@ -361,16 +320,13 @@ public class StressTestActivity extends Activity {
         running = false;
         handler.removeCallbacks(sampleTask);
         stopCpuWorkers();
-        if (gpuView != null) {
-            gpuView.setStressEnabled(false);
-            gpuView.setVisibility(View.GONE);
-        }
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
         long elapsed = Math.max(0, SystemClock.elapsedRealtime() - startedAtMs);
+        chartView.setData(frequencyHistoryMHz, elapsed / 1000f);
+
         StringBuilder result = new StringBuilder();
         result.append(reason).append("\n");
-        result.append("模式：").append(runningMode).append("\n");
         result.append("实际时长：").append(formatDuration(elapsed)).append("\n\n");
         result.append("CPU 频率\n");
         if (cpuFreqStats.count > 0) {
@@ -381,35 +337,22 @@ public class StressTestActivity extends Activity {
         } else {
             result.append("系统未允许读取 CPU 实时频率。\n");
         }
-
         result.append("\nCPU 平均占用：").append(cpuUsageStats.count > 0 ? formatPercent((float) cpuUsageStats.average()) : "不可读");
         result.append("\nCPU 最高温度：").append(cpuTempStats.count > 0 ? formatTemp(cpuTempStats.max) : "不可读");
-
-        result.append("\n\nGPU 频率\n");
-        if (gpuFreqStats.count > 0) {
-            result.append("平均：").append(formatMHz((float) (gpuFreqStats.sumAverageMHz / gpuFreqStats.count))).append("\n");
-            result.append("最高：").append(formatMHz(gpuFreqStats.maxMHz)).append("\n");
-            result.append("最低：").append(formatMHz(gpuFreqStats.minMHz)).append("\n");
-        } else {
-            result.append("当前系统限制普通 APK 读取 GPU 频率，压力负载仍可正常运行。\n");
-        }
-        result.append("GPU 平均占用：").append(gpuUsageStats.count > 0 ? formatPercent((float) gpuUsageStats.average()) : "不可读");
-        result.append("\nGPU 最高温度：").append(gpuTempStats.count > 0 ? formatTemp(gpuTempStats.max) : "不可读");
         result.append("\nBAT 最高温度：").append(batteryTempStats.count > 0 ? formatTemp(batteryTempStats.max) : "不可读");
 
         resultText.setText(result.toString());
-        statusText.setText("状态：" + reason + "\n已停止 CPU/GPU 压力负载。可重新选择时长继续测试。");
+        statusText.setText("状态：" + reason + "\nCPU 压力负载已停止，曲线保留在上方。");
         Toast.makeText(this, reason, Toast.LENGTH_SHORT).show();
     }
 
     private void resetStats() {
         cpuFreqStats.reset();
-        gpuFreqStats.reset();
         cpuUsageStats.reset();
-        gpuUsageStats.reset();
         cpuTempStats.reset();
-        gpuTempStats.reset();
         batteryTempStats.reset();
+        frequencyHistoryMHz.clear();
+        if (chartView != null) chartView.setData(frequencyHistoryMHz, 0f);
     }
 
     private FrequencySample readCpuFrequencySample() {
@@ -523,14 +466,6 @@ public class StressTestActivity extends Activity {
             count++;
         }
 
-        void add(float mhz) {
-            if (!StressTestActivity.valid(mhz)) return;
-            sumAverageMHz += mhz;
-            minMHz = Math.min(minMHz, mhz);
-            maxMHz = Math.max(maxMHz, mhz);
-            count++;
-        }
-
         void reset() {
             sumAverageMHz = 0;
             minMHz = Float.POSITIVE_INFINITY;
@@ -562,96 +497,124 @@ public class StressTestActivity extends Activity {
         }
     }
 
-    private static class GpuStressView extends GLSurfaceView {
-        private final StressRenderer stressRenderer;
+    private static class FrequencyChartView extends View {
+        private final Paint gridPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint linePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint avgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Path path = new Path();
+        private ArrayList<Float> samples = new ArrayList<>();
+        private float elapsedSeconds;
 
-        GpuStressView(Activity context) {
+        FrequencyChartView(Activity context) {
             super(context);
-            setEGLContextClientVersion(2);
-            stressRenderer = new StressRenderer();
-            setRenderer(stressRenderer);
-            setRenderMode(GLSurfaceView.RENDERMODE_WHEN_DIRTY);
-            setPreserveEGLContextOnPause(true);
+            setBackgroundColor(Color.rgb(248, 250, 253));
+            gridPaint.setColor(Color.rgb(215, 220, 226));
+            gridPaint.setStrokeWidth(dpStatic(context, 1));
+            linePaint.setColor(Color.rgb(25, 118, 210));
+            linePaint.setStyle(Paint.Style.STROKE);
+            linePaint.setStrokeWidth(dpStatic(context, 2));
+            textPaint.setColor(Color.DKGRAY);
+            textPaint.setTextSize(dpStatic(context, 11));
+            avgPaint.setColor(Color.rgb(229, 115, 20));
+            avgPaint.setStyle(Paint.Style.STROKE);
+            avgPaint.setStrokeWidth(dpStatic(context, 1));
         }
 
-        void setStressEnabled(boolean enabled) {
-            stressRenderer.enabled = enabled;
-            try {
-                setRenderMode(enabled ? GLSurfaceView.RENDERMODE_CONTINUOUSLY : GLSurfaceView.RENDERMODE_WHEN_DIRTY);
-                requestRender();
-            } catch (Throwable ignored) { }
-        }
-    }
-
-    private static class StressRenderer implements GLSurfaceView.Renderer {
-        private static final float[] TRIANGLE = {
-                -1f, -1f,
-                 3f, -1f,
-                -1f,  3f
-        };
-
-        private final FloatBuffer vertexBuffer = ByteBuffer.allocateDirect(TRIANGLE.length * 4)
-                .order(ByteOrder.nativeOrder()).asFloatBuffer();
-        volatile boolean enabled;
-        private int program;
-        private int positionHandle;
-        private int timeHandle;
-        private long startNs;
-
-        StressRenderer() {
-            vertexBuffer.put(TRIANGLE).position(0);
+        void setData(ArrayList<Float> source, float elapsedSeconds) {
+            this.samples = new ArrayList<>(source);
+            this.elapsedSeconds = elapsedSeconds;
+            invalidate();
         }
 
-        @Override public void onSurfaceCreated(GL10 gl, EGLConfig config) {
-            String vertex = "attribute vec2 aPos; void main(){ gl_Position = vec4(aPos, 0.0, 1.0); }";
-            String fragment =
-                    "precision mediump float; uniform float uTime;" +
-                    "void main(){" +
-                    "vec2 p=gl_FragCoord.xy*0.0025; float v=0.0;" +
-                    "for(int i=0;i<96;i++){" +
-                    "float f=float(i);" +
-                    "p=vec2(sin(p.y*1.71+uTime+f*0.013),cos(p.x*1.37-uTime+f*0.017));" +
-                    "v+=sin(dot(p,p)*7.0+f*0.11+uTime);" +
-                    "}" +
-                    "gl_FragColor=vec4(fract(v*0.17),fract(v*0.31),fract(v*0.47),1.0);" +
-                    "}";
-            int vs = compileShader(GLES20.GL_VERTEX_SHADER, vertex);
-            int fs = compileShader(GLES20.GL_FRAGMENT_SHADER, fragment);
-            program = GLES20.glCreateProgram();
-            GLES20.glAttachShader(program, vs);
-            GLES20.glAttachShader(program, fs);
-            GLES20.glLinkProgram(program);
-            positionHandle = GLES20.glGetAttribLocation(program, "aPos");
-            timeHandle = GLES20.glGetUniformLocation(program, "uTime");
-            startNs = System.nanoTime();
-            GLES20.glDisable(GLES20.GL_DEPTH_TEST);
-        }
+        @Override protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            float left = dpStatic(this, 44);
+            float top = dpStatic(this, 26);
+            float right = getWidth() - dpStatic(this, 12);
+            float bottom = getHeight() - dpStatic(this, 28);
+            if (right <= left || bottom <= top) return;
 
-        @Override public void onSurfaceChanged(GL10 gl, int width, int height) {
-            GLES20.glViewport(0, 0, width, height);
-        }
+            canvas.drawText("CPU 平均频率", left, dpStatic(this, 17), textPaint);
 
-        @Override public void onDrawFrame(GL10 gl) {
-            if (!enabled) {
-                GLES20.glClearColor(0.04f, 0.04f, 0.04f, 1f);
-                GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
+            float min = Float.POSITIVE_INFINITY;
+            float max = Float.NEGATIVE_INFINITY;
+            float sum = 0f;
+            int validCount = 0;
+            for (Float value : samples) {
+                if (value == null || !StressTestActivity.valid(value)) continue;
+                min = Math.min(min, value);
+                max = Math.max(max, value);
+                sum += value;
+                validCount++;
+            }
+
+            if (validCount == 0) {
+                for (int i = 0; i <= 4; i++) {
+                    float y = top + (bottom - top) * i / 4f;
+                    canvas.drawLine(left, y, right, y, gridPaint);
+                }
+                canvas.drawText("测试开始后显示频率曲线", left + dpStatic(this, 16), top + (bottom - top) / 2f, textPaint);
                 return;
             }
-            GLES20.glUseProgram(program);
-            float seconds = (System.nanoTime() - startNs) / 1_000_000_000f;
-            GLES20.glUniform1f(timeHandle, seconds);
-            vertexBuffer.position(0);
-            GLES20.glEnableVertexAttribArray(positionHandle);
-            GLES20.glVertexAttribPointer(positionHandle, 2, GLES20.GL_FLOAT, false, 0, vertexBuffer);
-            GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, 3);
-            GLES20.glDisableVertexAttribArray(positionHandle);
+
+            float low = (float) Math.floor(min / 500f) * 500f;
+            float high = (float) Math.ceil(max / 500f) * 500f;
+            if (high - low < 500f) high = low + 500f;
+            if (low < 0) low = 0;
+
+            for (int i = 0; i <= 4; i++) {
+                float ratio = i / 4f;
+                float y = bottom - (bottom - top) * ratio;
+                canvas.drawLine(left, y, right, y, gridPaint);
+                float value = low + (high - low) * ratio;
+                canvas.drawText(String.format(Locale.CHINA, "%.1fG", value / 1000f), dpStatic(this, 3), y + dpStatic(this, 4), textPaint);
+            }
+
+            path.reset();
+            boolean started = false;
+            int count = samples.size();
+            for (int i = 0; i < count; i++) {
+                Float value = samples.get(i);
+                if (value == null || !StressTestActivity.valid(value)) {
+                    started = false;
+                    continue;
+                }
+                float x = count <= 1 ? left : left + (right - left) * i / (count - 1f);
+                float normalized = (value - low) / (high - low);
+                float y = bottom - Math.max(0f, Math.min(1f, normalized)) * (bottom - top);
+                if (!started) {
+                    path.moveTo(x, y);
+                    started = true;
+                } else {
+                    path.lineTo(x, y);
+                }
+            }
+            canvas.drawPath(path, linePaint);
+
+            float avg = sum / validCount;
+            float avgY = bottom - Math.max(0f, Math.min(1f, (avg - low) / (high - low))) * (bottom - top);
+            canvas.drawLine(left, avgY, right, avgY, avgPaint);
+            canvas.drawText(String.format(Locale.CHINA, "均 %.2fG", avg / 1000f), Math.max(left, right - dpStatic(this, 60)), avgY - dpStatic(this, 4), textPaint);
+
+            String end = formatAxisTime(elapsedSeconds);
+            canvas.drawText("0", left, getHeight() - dpStatic(this, 7), textPaint);
+            float w = textPaint.measureText(end);
+            canvas.drawText(end, right - w, getHeight() - dpStatic(this, 7), textPaint);
         }
 
-        private static int compileShader(int type, String source) {
-            int shader = GLES20.glCreateShader(type);
-            GLES20.glShaderSource(shader, source);
-            GLES20.glCompileShader(shader);
-            return shader;
+        private static String formatAxisTime(float seconds) {
+            int total = Math.max(0, Math.round(seconds));
+            if (total >= 3600) return String.format(Locale.CHINA, "%d:%02d:%02d", total / 3600, (total % 3600) / 60, total % 60);
+            return String.format(Locale.CHINA, "%02d:%02d", total / 60, total % 60);
+        }
+
+        private static int dpStatic(View view, int value) {
+            return Math.round(value * view.getResources().getDisplayMetrics().density);
+        }
+
+        private static int dpStatic(Activity activity, int value) {
+            return Math.round(value * activity.getResources().getDisplayMetrics().density);
         }
     }
 }
