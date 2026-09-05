@@ -1,6 +1,6 @@
 # K90 性能悬浮监控
 
-![K90](https://github.com/feeday/K90PerformanceOverlay/blob/main/up.jpg)
+![K90](https://github.com/feeday/K90PerformanceOverlay/blob/main/060905.png)
 
 面向 **Redmi K90 / HyperOS / Android 16** 的轻量悬浮性能监控 APK。
 
