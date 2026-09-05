@@ -12,17 +12,12 @@
     <application
         android:allowBackup="false"
         android:label="K90 性能悬浮监控"
-        android:theme="@style/AppTheme">
+        android:theme="@style/AppTheme">">
 
         <activity
             android:name=".StressTestActivity"
-            android:label="K90 CPU/GPU 压力测试"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
+            android:label="CPU / GPU 压力测试"
+            android:exported="false" />
 
         <activity
             android:name=".MainActivity"
