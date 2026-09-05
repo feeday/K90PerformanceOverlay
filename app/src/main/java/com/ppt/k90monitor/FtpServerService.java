@@ -32,6 +32,8 @@ import java.util.Enumeration;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 /** Lightweight passive-mode FTP server for LAN file transfer. */
 public class FtpServerService extends Service {
@@ -46,6 +48,9 @@ public class FtpServerService extends Service {
     private static volatile boolean running;
     private static volatile int runningPort = -1;
     private static volatile String runningRoot = "--";
+    private static final AtomicInteger activeConnections = new AtomicInteger();
+    private static final AtomicLong downloadedBytes = new AtomicLong();
+    private static final AtomicLong uploadedBytes = new AtomicLong();
 
     private ServerSocket controlServer;
     private ExecutorService pool;
@@ -58,6 +63,11 @@ public class FtpServerService extends Service {
     public static boolean isRunning() { return running; }
     public static int getRunningPort() { return runningPort; }
     public static String getRunningRoot() { return runningRoot; }
+    public static int getActiveConnections() { return Math.max(0, activeConnections.get()); }
+    /** Bytes downloaded by FTP clients from this phone (RETR). */
+    public static long getDownloadedBytes() { return Math.max(0L, downloadedBytes.get()); }
+    /** Bytes uploaded by FTP clients to this phone (STOR/APPE). */
+    public static long getUploadedBytes() { return Math.max(0L, uploadedBytes.get()); }
 
     @Override public void onCreate() {
         super.onCreate();
@@ -82,6 +92,9 @@ public class FtpServerService extends Service {
         runningRoot = rootDir.getAbsolutePath();
         runningPort = port;
         stopping = false;
+        activeConnections.set(0);
+        downloadedBytes.set(0L);
+        uploadedBytes.set(0L);
 
         startForeground(NOTIFICATION_ID, buildNotification(port));
         startServer(port);
@@ -112,6 +125,7 @@ public class FtpServerService extends Service {
 
     private void handleClient(Socket socket) {
         ServerSocket passive = null;
+        activeConnections.incrementAndGet();
         try (Socket client = socket;
              BufferedReader in = new BufferedReader(new InputStreamReader(client.getInputStream()));
              PrintWriter out = new PrintWriter(new OutputStreamWriter(client.getOutputStream()), true)) {
@@ -211,7 +225,7 @@ public class FtpServerService extends Service {
                         reply(out, 150, "Opening binary data connection");
                         try (Socket data = passive.accept(); BufferedInputStream fis = new BufferedInputStream(new FileInputStream(f)); BufferedOutputStream dos = new BufferedOutputStream(data.getOutputStream())) {
                             skipFully(fis, restartOffset);
-                            copy(fis, dos);
+                            copy(fis, dos, downloadedBytes);
                         } catch (Throwable e) { reply(out, 426, "Transfer aborted"); }
                         restartOffset = 0L;
                         closeQuietly(passive); passive = null;
@@ -227,7 +241,7 @@ public class FtpServerService extends Service {
                         reply(out, 150, "Opening binary data connection");
                         boolean append = "APPE".equals(cmd);
                         try (Socket data = passive.accept(); BufferedInputStream dis = new BufferedInputStream(data.getInputStream()); BufferedOutputStream fos = new BufferedOutputStream(new FileOutputStream(f, append))) {
-                            copy(dis, fos);
+                            copy(dis, fos, uploadedBytes);
                         } catch (Throwable e) { reply(out, 426, "Transfer aborted"); }
                         closeQuietly(passive); passive = null;
                         reply(out, 226, "Transfer complete");
@@ -285,6 +299,7 @@ public class FtpServerService extends Service {
         } catch (Throwable ignored) {
         } finally {
             closeQuietly(passive);
+            activeConnections.updateAndGet(v -> Math.max(0, v - 1));
         }
     }
 
@@ -349,9 +364,15 @@ public class FtpServerService extends Service {
         return s;
     }
 
-    private static void copy(BufferedInputStream in, BufferedOutputStream out) throws Exception {
-        byte[] buf = new byte[64 * 1024]; int n;
-        while ((n = in.read(buf)) >= 0) { if (n > 0) out.write(buf, 0, n); }
+    private static void copy(BufferedInputStream in, BufferedOutputStream out, AtomicLong counter) throws Exception {
+        byte[] buf = new byte[64 * 1024];
+        int n;
+        while ((n = in.read(buf)) >= 0) {
+            if (n > 0) {
+                out.write(buf, 0, n);
+                counter.addAndGet(n);
+            }
+        }
         out.flush();
     }
 
@@ -419,6 +440,7 @@ public class FtpServerService extends Service {
         stopping = true;
         running = false;
         runningPort = -1;
+        activeConnections.set(0);
         try { if (controlServer != null) controlServer.close(); } catch (Throwable ignored) { }
         if (pool != null) pool.shutdownNow();
         stopForeground(STOP_FOREGROUND_REMOVE);
