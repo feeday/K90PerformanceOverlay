@@ -1,10 +1,7 @@
 package com.ppt.k90monitor;
 
 import android.app.Activity;
-import android.graphics.Canvas;
 import android.graphics.Color;
-import android.graphics.Paint;
-import android.graphics.Path;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -21,7 +18,6 @@ import android.widget.Toast;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
-import java.util.ArrayList;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -37,9 +33,8 @@ public class StressTestActivity extends Activity {
     private TextView durationLabel;
     private TextView statusText;
     private TextView resultText;
-    private FrequencyChartView chartView;
 
-    private int selectedMinutes = 10;
+    private int selectedMinutes = 5;
     private volatile boolean running;
     private long startedAtMs;
     private long targetEndMs;
@@ -49,7 +44,6 @@ public class StressTestActivity extends Activity {
     private final ValueStats cpuUsageStats = new ValueStats();
     private final ValueStats cpuTempStats = new ValueStats();
     private final ValueStats batteryTempStats = new ValueStats();
-    private final ArrayList<Float> frequencyHistoryMHz = new ArrayList<>();
 
     private static volatile long cpuBlackHole;
 
@@ -91,7 +85,7 @@ public class StressTestActivity extends Activity {
         root.addView(title, new LinearLayout.LayoutParams(-1, -2));
 
         TextView desc = new TextView(this);
-        desc.setText("多线程持续压满可用 CPU 核心，每秒读取在线核心实时频率。\n测试结束显示平均 / 最高 / 最低频率，并生成 CPU 频率变化曲线。\n\n温度保护：CPU ≥ 105°C 或电池 ≥ 55°C 时自动停止。");
+        desc.setText("多线程持续压满可用 CPU 核心，每秒读取在线核心实时频率。\n测试结束显示平均 / 最高 / 最低频率、平均占用和最高温度。\n\n温度保护：CPU ≥ 105°C 或电池 ≥ 55°C 时自动停止。");
         desc.setTextSize(14);
         desc.setTextColor(Color.DKGRAY);
         desc.setLineSpacing(0, 1.15f);
@@ -102,8 +96,8 @@ public class StressTestActivity extends Activity {
 
         LinearLayout durationRow = new LinearLayout(this);
         durationRow.setOrientation(LinearLayout.HORIZONTAL);
-        int[] minutes = {5, 10, 15, 30, 60};
-        String[] labels = {"5分", "10分", "15分", "30分", "1小时"};
+        int[] minutes = {3, 5, 15, 30, 60};
+        String[] labels = {"3分", "5分", "15分", "30分", "1小时"};
         for (int i = 0; i < minutes.length; i++) {
             final int value = minutes[i];
             Button b = makeButton(labels[i], 13);
@@ -147,14 +141,7 @@ public class StressTestActivity extends Activity {
         statusText.setBackgroundColor(Color.rgb(242, 242, 242));
         root.addView(statusText, new LinearLayout.LayoutParams(-1, -2));
 
-        root.addView(sectionTitle("4. CPU 频率曲线"), new LinearLayout.LayoutParams(-1, -2));
-
-        chartView = new FrequencyChartView(this);
-        LinearLayout.LayoutParams chartLp = new LinearLayout.LayoutParams(-1, dp(240));
-        chartLp.topMargin = dp(6);
-        root.addView(chartView, chartLp);
-
-        root.addView(sectionTitle("5. 测试结果"), new LinearLayout.LayoutParams(-1, -2));
+        root.addView(sectionTitle("4. 测试结果"), new LinearLayout.LayoutParams(-1, -2));
 
         resultText = new TextView(this);
         resultText.setText("完成一次测试后，这里会显示统计结果。\n重点：CPU 平均频率 / 最高频率 / 最低频率。");
@@ -165,7 +152,7 @@ public class StressTestActivity extends Activity {
         root.addView(resultText, new LinearLayout.LayoutParams(-1, -2));
 
         TextView note = new TextView(this);
-        note.setText("说明：曲线按约 1 秒一次采样，纵轴为全体可读在线核心的平均频率。系统限制读取时会回退到现有监控可读频率。压力测试会明显增加功耗和发热。");
+        note.setText("说明：频率约每秒采样一次。系统限制读取时会回退到现有监控可读频率。压力测试会明显增加功耗和发热。");
         note.setTextSize(13);
         note.setTextColor(Color.GRAY);
         note.setPadding(0, dp(18), 0, dp(10));
@@ -211,7 +198,7 @@ public class StressTestActivity extends Activity {
 
     private void updateIdleStatus() {
         if (statusText != null) {
-            statusText.setText("状态：未运行\n请选择 5 / 10 / 15 / 30 / 60 分钟后开始测试。");
+            statusText.setText("状态：未运行\n请选择 3 / 5 / 15 / 30 / 60 分钟后开始测试。");
         }
     }
 
@@ -228,7 +215,7 @@ public class StressTestActivity extends Activity {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         startCpuWorkers();
 
-        resultText.setText("测试进行中……结束后自动生成统计结果和频率曲线。");
+        resultText.setText("测试进行中……结束后自动生成统计结果。");
         Toast.makeText(this, "CPU 压力测试已开始", Toast.LENGTH_SHORT).show();
         handler.removeCallbacks(sampleTask);
         handler.postDelayed(sampleTask, 700);
@@ -275,20 +262,13 @@ public class StressTestActivity extends Activity {
             cpuSample = new FrequencySample(snapshot.cpuFreqMHz, snapshot.cpuFreqMHz, snapshot.cpuFreqMHz, 1);
         }
 
-        if (cpuSample.valid()) {
-            cpuFreqStats.add(cpuSample);
-            frequencyHistoryMHz.add(cpuSample.averageMHz);
-        } else {
-            frequencyHistoryMHz.add(Float.NaN);
-        }
+        if (cpuSample.valid()) cpuFreqStats.add(cpuSample);
         if (valid(snapshot.cpuUsage)) cpuUsageStats.add(snapshot.cpuUsage);
         if (valid(snapshot.cpuTempC)) cpuTempStats.add(snapshot.cpuTempC);
         if (valid(snapshot.batteryTempC)) batteryTempStats.add(snapshot.batteryTempC);
 
         long now = SystemClock.elapsedRealtime();
-        long elapsedMs = Math.max(0, now - startedAtMs);
         long remainingMs = Math.max(0, targetEndMs - now);
-        chartView.setData(frequencyHistoryMHz, elapsedMs / 1000f);
 
         StringBuilder sb = new StringBuilder();
         sb.append("状态：运行中\n");
@@ -323,7 +303,6 @@ public class StressTestActivity extends Activity {
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
         long elapsed = Math.max(0, SystemClock.elapsedRealtime() - startedAtMs);
-        chartView.setData(frequencyHistoryMHz, elapsed / 1000f);
 
         StringBuilder result = new StringBuilder();
         result.append(reason).append("\n");
@@ -342,7 +321,7 @@ public class StressTestActivity extends Activity {
         result.append("\nBAT 最高温度：").append(batteryTempStats.count > 0 ? formatTemp(batteryTempStats.max) : "不可读");
 
         resultText.setText(result.toString());
-        statusText.setText("状态：" + reason + "\nCPU 压力负载已停止，曲线保留在上方。");
+        statusText.setText("状态：" + reason + "\nCPU 压力负载已停止。");
         Toast.makeText(this, reason, Toast.LENGTH_SHORT).show();
     }
 
@@ -351,8 +330,6 @@ public class StressTestActivity extends Activity {
         cpuUsageStats.reset();
         cpuTempStats.reset();
         batteryTempStats.reset();
-        frequencyHistoryMHz.clear();
-        if (chartView != null) chartView.setData(frequencyHistoryMHz, 0f);
     }
 
     private FrequencySample readCpuFrequencySample() {
@@ -494,127 +471,6 @@ public class StressTestActivity extends Activity {
             sum = 0;
             max = Float.NEGATIVE_INFINITY;
             count = 0;
-        }
-    }
-
-    private static class FrequencyChartView extends View {
-        private final Paint gridPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Paint linePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Paint avgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Path path = new Path();
-        private ArrayList<Float> samples = new ArrayList<>();
-        private float elapsedSeconds;
-
-        FrequencyChartView(Activity context) {
-            super(context);
-            setBackgroundColor(Color.rgb(248, 250, 253));
-            gridPaint.setColor(Color.rgb(215, 220, 226));
-            gridPaint.setStrokeWidth(dpStatic(context, 1));
-            linePaint.setColor(Color.rgb(25, 118, 210));
-            linePaint.setStyle(Paint.Style.STROKE);
-            linePaint.setStrokeWidth(dpStatic(context, 2));
-            textPaint.setColor(Color.DKGRAY);
-            textPaint.setTextSize(dpStatic(context, 11));
-            avgPaint.setColor(Color.rgb(229, 115, 20));
-            avgPaint.setStyle(Paint.Style.STROKE);
-            avgPaint.setStrokeWidth(dpStatic(context, 1));
-        }
-
-        void setData(ArrayList<Float> source, float elapsedSeconds) {
-            this.samples = new ArrayList<>(source);
-            this.elapsedSeconds = elapsedSeconds;
-            invalidate();
-        }
-
-        @Override protected void onDraw(Canvas canvas) {
-            super.onDraw(canvas);
-            float left = dpStatic(this, 44);
-            float top = dpStatic(this, 26);
-            float right = getWidth() - dpStatic(this, 12);
-            float bottom = getHeight() - dpStatic(this, 28);
-            if (right <= left || bottom <= top) return;
-
-            canvas.drawText("CPU 平均频率", left, dpStatic(this, 17), textPaint);
-
-            float min = Float.POSITIVE_INFINITY;
-            float max = Float.NEGATIVE_INFINITY;
-            float sum = 0f;
-            int validCount = 0;
-            for (Float value : samples) {
-                if (value == null || !StressTestActivity.valid(value)) continue;
-                min = Math.min(min, value);
-                max = Math.max(max, value);
-                sum += value;
-                validCount++;
-            }
-
-            if (validCount == 0) {
-                for (int i = 0; i <= 4; i++) {
-                    float y = top + (bottom - top) * i / 4f;
-                    canvas.drawLine(left, y, right, y, gridPaint);
-                }
-                canvas.drawText("测试开始后显示频率曲线", left + dpStatic(this, 16), top + (bottom - top) / 2f, textPaint);
-                return;
-            }
-
-            float low = (float) Math.floor(min / 500f) * 500f;
-            float high = (float) Math.ceil(max / 500f) * 500f;
-            if (high - low < 500f) high = low + 500f;
-            if (low < 0) low = 0;
-
-            for (int i = 0; i <= 4; i++) {
-                float ratio = i / 4f;
-                float y = bottom - (bottom - top) * ratio;
-                canvas.drawLine(left, y, right, y, gridPaint);
-                float value = low + (high - low) * ratio;
-                canvas.drawText(String.format(Locale.CHINA, "%.1fG", value / 1000f), dpStatic(this, 3), y + dpStatic(this, 4), textPaint);
-            }
-
-            path.reset();
-            boolean started = false;
-            int count = samples.size();
-            for (int i = 0; i < count; i++) {
-                Float value = samples.get(i);
-                if (value == null || !StressTestActivity.valid(value)) {
-                    started = false;
-                    continue;
-                }
-                float x = count <= 1 ? left : left + (right - left) * i / (count - 1f);
-                float normalized = (value - low) / (high - low);
-                float y = bottom - Math.max(0f, Math.min(1f, normalized)) * (bottom - top);
-                if (!started) {
-                    path.moveTo(x, y);
-                    started = true;
-                } else {
-                    path.lineTo(x, y);
-                }
-            }
-            canvas.drawPath(path, linePaint);
-
-            float avg = sum / validCount;
-            float avgY = bottom - Math.max(0f, Math.min(1f, (avg - low) / (high - low))) * (bottom - top);
-            canvas.drawLine(left, avgY, right, avgY, avgPaint);
-            canvas.drawText(String.format(Locale.CHINA, "均 %.2fG", avg / 1000f), Math.max(left, right - dpStatic(this, 60)), avgY - dpStatic(this, 4), textPaint);
-
-            String end = formatAxisTime(elapsedSeconds);
-            canvas.drawText("0", left, getHeight() - dpStatic(this, 7), textPaint);
-            float w = textPaint.measureText(end);
-            canvas.drawText(end, right - w, getHeight() - dpStatic(this, 7), textPaint);
-        }
-
-        private static String formatAxisTime(float seconds) {
-            int total = Math.max(0, Math.round(seconds));
-            if (total >= 3600) return String.format(Locale.CHINA, "%d:%02d:%02d", total / 3600, (total % 3600) / 60, total % 60);
-            return String.format(Locale.CHINA, "%02d:%02d", total / 60, total % 60);
-        }
-
-        private static int dpStatic(View view, int value) {
-            return Math.round(value * view.getResources().getDisplayMetrics().density);
-        }
-
-        private static int dpStatic(Activity activity, int value) {
-            return Math.round(value * activity.getResources().getDisplayMetrics().density);
         }
     }
 }
